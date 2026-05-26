@@ -25,13 +25,13 @@ export function useFundGrant(): UseFundGrantReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fund = useCallback(async (params: FundGrantParams): Promise<FundGrantResult> => {
+  const fund = useCallback(async (_params: FundGrantParams): Promise<FundGrantResult> => {
     setIsLoading(true);
     setError(null);
 
     try {
       // TODO: Replace with real contract client call once SDK binding is ready.
-      // e.g.: const tx = await grantClient.fundGrant(params.grantId, params.amount);
+      // e.g.: const tx = await grantClient.fundGrant(_params.grantId, _params.amount);
       //       const result = await tx.signAndSend({ signTransaction });
       const mockTxHash = `mock_tx_${Date.now()}`;
 
