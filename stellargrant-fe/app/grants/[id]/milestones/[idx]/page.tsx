@@ -162,7 +162,7 @@ function MilestoneDetailContent({
     return <ErrorCard message={grantError.message} onRetry={() => void refetch()} />;
   }
   if (milestoneError) {
-    return <ErrorCard message={milestoneError} onRetry={() => void refetch()} />;
+    return <ErrorCard message={milestoneError.message} onRetry={() => void refetch()} />;
   }
 
   // No grant data (e.g. 404)
