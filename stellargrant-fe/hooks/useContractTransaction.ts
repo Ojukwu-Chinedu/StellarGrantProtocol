@@ -15,7 +15,6 @@ import {
   SorobanRpc,
   Account,
   BASE_FEE,
-  Operation,
   xdr,
 } from "@stellar/stellar-sdk";
 import { rpcClient, networkPassphraseConfig } from "@/lib/stellar/client";
@@ -169,12 +168,12 @@ export function useContractTransaction(): UseContractTransactionResult {
       }
 
       throw new Error("Transaction confirmation timeout");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Transaction failed";
+    } catch (_err) {
+      const message = _err instanceof Error ? _err.message : "Transaction failed";
       setError(message);
       setIsPending(false);
       setIsSimulating(false);
-      onError?.(err instanceof Error ? err : new Error(message));
+      onError?.(_err instanceof Error ? _err : new Error(message));
 
       // Fire error toast
       if (typeof window !== "undefined") {

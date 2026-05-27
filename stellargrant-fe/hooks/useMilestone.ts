@@ -60,8 +60,9 @@ export function useMilestone(grantId: string, milestoneIdx: number): UseMileston
         setMilestone(milestoneData);
 
         // Extract votes if available
-        if ((milestoneData as any).votes) {
-          setVotes((milestoneData as any).votes);
+        const milestoneWithVotes = milestoneData as Milestone & { votes?: MilestoneVote[] };
+        if (milestoneWithVotes.votes) {
+          setVotes(milestoneWithVotes.votes);
         }
       } else {
         throw new Error(`Milestone ${milestoneIdx} not found`);
