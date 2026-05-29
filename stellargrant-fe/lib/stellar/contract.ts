@@ -83,6 +83,27 @@ export class ContractClient {
   }
 
   /**
+   * Write: Approve a SAC token (e.g. USDC) for spending by the grant contract.
+   *
+   * USDC on Stellar is a Soroban Asset Contract, so funding with USDC is a
+   * two-step flow: first `approveToken` (this), then `grantFund`. Returns the
+   * unsigned transaction XDR for the wallet to sign.
+   */
+  async approveToken(params: {
+    tokenAddress: string;
+    spender: string; // grant contract address
+    amount: bigint;
+    owner: string; // connected wallet address
+  }): Promise<string> {
+    if (!params.tokenAddress) throw new Error("tokenAddress is required");
+    if (!params.spender) throw new Error("spender is required");
+    if (!params.owner) throw new Error("owner is required");
+    if (params.amount <= 0n) throw new Error("amount must be greater than zero");
+    // TODO: build the token_approve invocation against the SAC and return XDR
+    throw new Error("Not implemented");
+  }
+
+  /**
    * Write: Submit milestone proof
    */
   async milestoneSubmit(_params: {

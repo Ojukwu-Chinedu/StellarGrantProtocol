@@ -32,3 +32,9 @@ export type { PageHeaderProps } from "./PageHeader";
 
 export { FileUpload } from "./FileUpload";
 export type { FileUploadProps } from "./FileUpload";
+
+export { ConfirmationDialog } from "./ConfirmationDialog";
+export type { ConfirmationDialogProps } from "./ConfirmationDialog";
+
+export { DatePicker, computeRelativeDateLabel, todayIso } from "./DatePicker";
+export type { DatePickerProps, RelativeDateLabel, RelativeDateTone } from "./DatePicker";
