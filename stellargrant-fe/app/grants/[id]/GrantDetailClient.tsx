@@ -1,6 +1,6 @@
 "use client";
 
-import { use, Suspense, useEffect, useMemo, useState } from "react";
+import { use, Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { FundingProgress } from "@/components/grants/FundingProgress";
@@ -17,7 +17,11 @@ import { formatTokenAmount, getTokenMetadata } from "@/lib/tokens";
 import { stellarExplorerAccount } from "@/lib/constants";
 import { useGrant } from "@/hooks/useGrant";
 import { useFunders } from "@/hooks/useFunders";
+import { useGrantBalances } from "@/hooks/useGrantBalances";
+import { useRelativeTime } from "@/hooks/useRelativeTime";
+import { toast } from "@/lib/toast";
 import type { TokenMetadata } from "@/types";
+import type { GrantBalances } from "@/lib/stellar/balances";
 
 function daysUntilDeadline(deadlineTs: bigint): number {
   const ms = Number(deadlineTs) * 1000 - Date.now();
@@ -80,6 +84,60 @@ function GrantDetailContent({ grantId }: { grantId: string }) {
   const grant = data?.grant;
   const milestones = data?.milestones ?? [];
 
+  const handleBalanceChange = useCallback(
+    (_current: GrantBalances, previous: GrantBalances | null) => {
+      if (!grant || grant.budget === 0n) return;
+      const prevFunded = previous
+        ? previous.balances
+            .filter((b) => b.isNative)
+            .reduce((sum, b) => sum + b.balanceStroops, 0n)
+        : grant.funded;
+      if (prevFunded < grant.budget) {
+        const newPct = Math.min(
+          100,
+          Number((prevFunded * 100n) / grant.budget)
+        );
+        toast({
+          title: "New funding received!",
+          description: `Grant is now ${newPct.toFixed(1)}% funded.`,
+          variant: "success",
+        });
+      }
+    },
+    [grant]
+  );
+
+  const contractAddress = grant?.contractAddress ?? "";
+
+  const {
+    balances,
+    isLoading: balancesLoading,
+    lastUpdated,
+  } = useGrantBalances({
+    contractAddress,
+    pollInterval: 10_000,
+    enabled: !!grant && !!contractAddress,
+    onChange: handleBalanceChange,
+  });
+
+  const liveFunded = useMemo(() => {
+    if (!balancesLoading && balances?.balances) {
+      const nativeBalance = balances.balances.find((b) => b.isNative);
+      if (nativeBalance) return nativeBalance.balanceStroops;
+    }
+    return grant?.funded ?? 0n;
+  }, [balances, balancesLoading, grant?.funded]);
+
+  const liveTokens = useMemo(() => {
+    if (!balances?.balances) return undefined;
+    return balances.balances.map((b) => ({
+      token: b.assetCode === "XLM" ? "native" : b.assetCode,
+      amount: b.balanceStroops,
+    }));
+  }, [balances]);
+
+  const freshnessLabel = useRelativeTime(lastUpdated ?? new Date());
+
   useEffect(() => {
     if (!grant?.token) return;
     getTokenMetadata(grant.token)
@@ -89,8 +147,8 @@ function GrantDetailContent({ grantId }: { grantId: string }) {
 
   const fundedPercent = useMemo(() => {
     if (!grant || grant.budget === 0n) return 0;
-    return Math.min(100, Number((grant.funded * 100n) / grant.budget));
-  }, [grant]);
+    return Math.min(100, Number((liveFunded * 100n) / grant.budget));
+  }, [grant, liveFunded]);
 
   if (isLoading) return <GrantDetailSkeleton />;
 
@@ -130,7 +188,7 @@ function GrantDetailContent({ grantId }: { grantId: string }) {
         </h1>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <GrantStatusBadge status={grant.status} />
-          <WatchButton grantId={grant.id} initialWatched={data.isWatched} />
+          <WatchButton grantId={grant.id} />
           <ShareButton
             grantId={grant.id}
             grantTitle={grant.title}
@@ -223,10 +281,17 @@ function GrantDetailContent({ grantId }: { grantId: string }) {
         <aside className="w-full lg:w-80 shrink-0 space-y-6 order-1 lg:order-2">
           <section className="border border-border-color bg-surface p-5 ring-1 ring-border-color">
             <FundingProgress
-              current={grant.funded}
+              current={liveFunded}
               target={grant.budget}
               token={grant.token}
+              tokens={liveTokens}
+              showBreakdown
             />
+            {!!contractAddress && (
+              <p className="font-mono text-[10px] text-text-muted mt-1">
+                On-chain balance · Updated {freshnessLabel}
+              </p>
+            )}
             {canFund && (
               <button
                 type="button"
@@ -270,6 +335,15 @@ function GrantDetailContent({ grantId }: { grantId: string }) {
                 ))}
               </ul>
             )}
+          </section>
+
+          <section className="border border-border-color bg-surface p-5 ring-1 ring-border-color">
+            <Link
+              href={`/grants/${grant.id}/history`}
+              className="font-mono text-xs text-accent-secondary hover:underline"
+            >
+              History →
+            </Link>
           </section>
 
           <section className="hidden lg:block border border-border-color bg-surface p-5 ring-1 ring-border-color">
