@@ -1,5 +1,7 @@
-import { Column, Entity, OneToMany, PrimaryColumn, UpdateDateColumn, ManyToMany, JoinTable } from "typeorm";
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryColumn, UpdateDateColumn, ManyToMany, JoinTable } from "typeorm";
 import { MilestoneProof } from "./MilestoneProof";
+import { Milestone } from "./Milestone";
+import { Community } from "./Community";
 import { GrantReviewer } from "./GrantReviewer";
 
 @Entity({ name: "grants" })
@@ -22,6 +24,13 @@ export class Grant {
   @Column({ type: "varchar", length: 120 })
   recipient!: string;
 
+  @Column({ type: "int", nullable: true })
+  communityId?: number | null;
+
+  @ManyToOne(() => Community, (community) => community.grants, { nullable: true })
+  @JoinColumn({ name: "communityId" })
+  community?: Community;
+
   @Column({ type: "varchar", length: 60 })
   totalAmount!: string;
 
@@ -30,6 +39,9 @@ export class Grant {
 
   @OneToMany(() => GrantReviewer, (reviewer) => reviewer.grant)
   reviewers?: GrantReviewer[];
+
+  @OneToMany(() => Milestone, (milestone) => milestone.grant)
+  milestones?: Milestone[];
 
   @UpdateDateColumn()
   updatedAt!: Date;

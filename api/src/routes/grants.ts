@@ -48,7 +48,10 @@ export const buildGrantRouter = (grantRepo: Repository<Grant>, syncService: Gran
   router.get("/", async (req, res, next) => {
     try {
       await syncService.syncAllGrants();
-      const grants = await grantRepo.find({ order: { id: "ASC" } });
+      const communityId = req.query.communityId !== undefined ? Number(req.query.communityId) : undefined;
+      const grants = Number.isInteger(communityId)
+        ? await grantRepo.find({ where: { communityId }, order: { id: "ASC" } })
+        : await grantRepo.find({ order: { id: "ASC" } });
       const lang = req.header("Accept-Language");
       const localizedGrants = grants.map((g) => localizeGrant(g, lang));
       res.json({ data: localizedGrants });

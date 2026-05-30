@@ -8,6 +8,14 @@ const mockGrants: SorobanGrant[] = [
     recipient: "GBRPYHIL2C2WBO36G6UIGR2PA4M3TQ7VOY3RTMAL4LRRA67ZOHQ65SZD",
     totalAmount: "250000000",
     owner: "GOWNEREXAMPLEADDRESS0000000000000000000000000000000000",
+    milestones: [
+      {
+        idx: 0,
+        title: "Initial planning milestone",
+        description: "Establish project scope and requirements.",
+        deadline: "2025-12-31",
+      },
+    ],
   },
   {
     id: 2,
@@ -16,6 +24,46 @@ const mockGrants: SorobanGrant[] = [
     recipient: "GCBQ6JQXQTVV7T7OUVPR4Q6PGACCUAKS6S2YDG3YQYQYRR2NJB5A6NAA",
     totalAmount: "100000000",
     owner: "GOWNEREXAMPLEADDRESS1111111111111111111111111111111111",
+    milestones: [
+      {
+        idx: 0,
+        title: "Proof-of-concept milestone",
+        description: "Build and validate initial climate data tooling.",
+        deadline: "2025-11-30",
+      },
+    ],
+  },
+  {
+    id: 3,
+    title: "Data Privacy Research",
+    status: "completed",
+    recipient: "GDATAPRIVACYRECPNT0000000000000000000000000000000000000",
+    totalAmount: "150000000",
+    owner: "GOWNEREXAMPLEADDRESS2222222222222222222222222222222222",
+    milestones: [
+      {
+        idx: 0,
+        title: "Research milestone",
+        description: "Collect and analyze privacy-preserving datasets.",
+        deadline: "2025-10-31",
+      },
+    ],
+  },
+  {
+    id: 4,
+    title: "Educational Outreach",
+    status: "active",
+    recipient: "GEDUCATIONOUTREACHRECIPIENT0000000000000000000000000",
+    totalAmount: "50000000",
+    owner: "GOWNEREXAMPLEADDRESS3333333333333333333333333333333333333",
+    milestones: [
+      {
+        idx: 0,
+        title: "Outreach milestone",
+        description: "Launch community workshops and outreach sessions.",
+        deadline: "2025-09-30",
+      },
+    ],
   },
 ];
 

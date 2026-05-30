@@ -49,6 +49,11 @@ export class LeaderboardService {
         .where("log.timestamp >= :thirtyDaysAgo", { thirtyDaysAgo })
         .getRawOne();
 
+      const totalCount = parseInt(counts?.count ?? "0", 10);
+      if (totalCount === 0) {
+        return this.getLeaderboard("all-time", page, limit);
+      }
+
       const rawResults = await qb.getRawMany();
       
       // Enrich with totalGrantsCompleted from Contributor entity
