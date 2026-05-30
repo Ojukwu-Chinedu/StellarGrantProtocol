@@ -1,10 +1,13 @@
 import express from "express";
 import helmet from "helmet";
+import cors from "cors";
+import morgan from "morgan";
 import { DataSource } from "typeorm";
 import { Grant } from "./entities/Grant";
 import { MilestoneProof } from "./entities/MilestoneProof";
 import { buildGrantRouter } from "./routes/grants";
 import { buildMilestoneProofRouter } from "./routes/milestone-proof";
+import { buildSearchRouter } from "./routes/search";
 import { GrantSyncService } from "./services/grant-sync-service";
 import { SignatureService } from "./services/signature-service";
 import { SorobanContractClient } from "./soroban/types";
@@ -12,6 +15,8 @@ import { SorobanContractClient } from "./soroban/types";
 export const createApp = (dataSource: DataSource, sorobanClient: SorobanContractClient) => {
   const app = express();
   app.use(helmet());
+  app.use(cors());
+  app.use(morgan("tiny"));
   app.use(express.json());
 
   const grantRepo = dataSource.getRepository(Grant);
@@ -22,6 +27,7 @@ export const createApp = (dataSource: DataSource, sorobanClient: SorobanContract
   app.get("/health", (_req, res) => res.json({ ok: true }));
   app.use("/grants", buildGrantRouter(grantRepo, grantSyncService));
   app.use("/milestone_proof", buildMilestoneProofRouter(proofRepo, signatureService));
+  app.use("/search", buildSearchRouter(dataSource));
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const message = err instanceof Error ? err.message : "Internal server error";
