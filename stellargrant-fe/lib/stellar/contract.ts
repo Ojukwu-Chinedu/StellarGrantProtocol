@@ -7,6 +7,7 @@
 
 import { nativeToScVal, xdr } from "@stellar/stellar-sdk";
 import { networkPassphraseConfig } from "./client";
+import { nativeToScVal } from "@stellar/stellar-sdk";
 
 const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
 
@@ -106,6 +107,27 @@ export class ContractClient {
   }
 
   /**
+   * Write: Approve a SAC token (e.g. USDC) for spending by the grant contract.
+   *
+   * USDC on Stellar is a Soroban Asset Contract, so funding with USDC is a
+   * two-step flow: first `approveToken` (this), then `grantFund`. Returns the
+   * unsigned transaction XDR for the wallet to sign.
+   */
+  async approveToken(params: {
+    tokenAddress: string;
+    spender: string; // grant contract address
+    amount: bigint;
+    owner: string; // connected wallet address
+  }): Promise<string> {
+    if (!params.tokenAddress) throw new Error("tokenAddress is required");
+    if (!params.spender) throw new Error("spender is required");
+    if (!params.owner) throw new Error("owner is required");
+    if (params.amount <= 0n) throw new Error("amount must be greater than zero");
+    // TODO: build the token_approve invocation against the SAC and return XDR
+    throw new Error("Not implemented");
+  }
+
+  /**
    * Write: Submit milestone proof
    */
   async milestoneSubmit(_params: {
@@ -154,6 +176,40 @@ export class ContractClient {
       // TODO: wire to milestoneReject contract method once added
       throw new Error("Milestone rejection not yet implemented in contract");
     }
+  }
+
+  /**
+   * Read-only: Check if an address is a council member
+   */
+  async isCouncilMember(params: { address: string }): Promise<boolean> {
+    const raw = process.env.NEXT_PUBLIC_COUNCIL_ADDRESSES ?? "";
+    const councilSet = new Set(
+      raw
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean)
+    );
+    return councilSet.has(params.address);
+  }
+
+  /**
+   * Write: Resolve milestone dispute
+   */
+  async resolveDispute(params: {
+    grantId: string;
+    milestoneIdx: number;
+    approvePayout: boolean;
+    councilAddress: string;
+  }) {
+    return {
+      method: "milestone_resolve_dispute",
+      args: [
+        nativeToScVal(params.councilAddress, { type: "address" }),
+        nativeToScVal(BigInt(params.grantId), { type: "u64" }),
+        nativeToScVal(params.milestoneIdx, { type: "u32" }),
+        nativeToScVal(params.approvePayout, { type: "bool" }),
+      ]
+    };
   }
 }
 

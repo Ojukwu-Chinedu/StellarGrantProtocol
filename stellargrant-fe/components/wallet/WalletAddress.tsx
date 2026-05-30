@@ -17,6 +17,7 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "@/lib/toast";
+import { useAddressFormat } from "@/hooks/useAddressFormat";
 
 // ── Inline SVG icons (no icon-library dependency) ─────────────────────────────
 
@@ -90,12 +91,6 @@ interface WalletAddressProps {
 
 const CHECKMARK_DURATION_MS = 2000;
 
-/** Truncate to first-6 … last-4 per spec: GABC12…XYZ9 */
-function truncateAddress(address: string): string {
-  if (address.length <= 10) return address;
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
 export function WalletAddress({
   address,
   showCopyIcon = true,
@@ -103,6 +98,7 @@ export function WalletAddress({
   showCopy, // back-compat alias
 }: WalletAddressProps) {
   const [copied, setCopied] = useState(false);
+  const formatAddress = useAddressFormat();
 
   // Resolve alias: if old showCopy prop is explicitly passed, honour it
   const iconVisible = showCopy !== undefined ? showCopy : showCopyIcon;
@@ -140,7 +136,7 @@ export function WalletAddress({
         className="font-mono text-sm"
         title={address}
       >
-        {truncateAddress(address)}
+        {formatAddress(address)}
       </span>
 
       {iconVisible && (
