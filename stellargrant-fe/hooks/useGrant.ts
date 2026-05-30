@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { notFound } from "next/navigation";
 import type { Grant, Milestone } from "@/types";
 import { logger } from "@/lib/logger";
 
@@ -54,6 +55,7 @@ export function useGrant(grantId: string, options?: UseGrantOptions): UseGrantRe
       const res = await fetch(`/api/grants/${grantId}`, {
         signal: abortRef.current.signal,
       });
+      if (res.status === 404) notFound();
       if (!res.ok) throw new Error(`Failed to fetch grant ${grantId}: ${res.status}`);
       const json = (await res.json()) as {
         grant: Grant;
