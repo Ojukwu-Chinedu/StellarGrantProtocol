@@ -17,21 +17,19 @@ export function AppFooter() {
   const [latestLedger, setLatestLedger] = useState<number | null>(null);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-
     const fetchLedger = async () => {
       try {
         const response = await getHorizonClient().ledgers().order("desc").limit(1).call();
         if (response.records && response.records.length > 0) {
           setLatestLedger(response.records[0].sequence);
         }
-      } catch (err) {
+      } catch (_err) {
         // Silent catch to prevent console errors if network is down
       }
     };
 
     void fetchLedger();
-    interval = setInterval(fetchLedger, 30000); // Poll every 30 seconds
+    const interval = setInterval(fetchLedger, 30000); // Poll every 30 seconds
 
     return () => clearInterval(interval);
   }, []);

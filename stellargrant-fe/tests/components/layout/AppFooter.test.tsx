@@ -15,8 +15,8 @@ vi.mock("../../../lib/stellar/client", () => ({
 describe("AppFooter", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    (useNetworkStatus as any).mockReturnValue({ isOnline: true });
-    (getHorizonClient as any).mockReturnValue({
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: true } as ReturnType<typeof useNetworkStatus>);
+    vi.mocked(getHorizonClient).mockReturnValue({
       ledgers: () => ({
         order: () => ({
           limit: () => ({
@@ -66,7 +66,7 @@ describe("AppFooter", () => {
   });
 
   it("shows offline status when network is offline", () => {
-    (useNetworkStatus as any).mockReturnValue({ isOnline: false });
+    vi.mocked(useNetworkStatus).mockReturnValue({ isOnline: false } as ReturnType<typeof useNetworkStatus>);
     render(<AppFooter />);
     expect(screen.getByLabelText("Offline")).toBeInTheDocument();
   });
