@@ -25,6 +25,7 @@ import { UserRole } from "../entities/UserRole";
 import { UserWatchlist } from "../entities/UserWatchlist";
 import { WebhookDeliveryLog } from "../entities/WebhookDeliveryLog";
 import { WebhookSubscription } from "../entities/WebhookSubscription";
+import { GrantFeedback } from "../entities/GrantFeedback";
 
 const entities = [
   Activity,
@@ -33,6 +34,7 @@ const entities = [
   Contributor,
   FeeCollection,
   Grant,
+  GrantFeedback,
   GrantHistory,
   GrantReviewer,
   GrantView,

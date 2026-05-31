@@ -37,6 +37,7 @@ import { GrantReviewer } from "./entities/GrantReviewer";
 import { MilestoneApproval } from "./entities/MilestoneApproval";
 import { Milestone } from "./entities/Milestone";
 import { MilestoneComment } from "./entities/MilestoneComment";
+import { GrantFeedback } from "./entities/GrantFeedback";
 import { WebhookDispatcher } from "./services/webhook-dispatcher";
 import { buildUserRouter } from "./routes/users";
 import { buildGrantReviewerRouter } from "./routes/grant-reviewers";
@@ -64,6 +65,7 @@ export const createApp = (dataSource: DataSource, sorobanClient: SorobanContract
   const approvalRepo = dataSource.getRepository(MilestoneApproval);
   const milestoneRepo = dataSource.getRepository(Milestone);
   const commentsRepo = dataSource.getRepository(MilestoneComment);
+  const feedbackRepo = dataSource.getRepository(GrantFeedback);
 
   const grantSyncService = new GrantSyncService(dataSource, sorobanClient);
   const signatureService = new SignatureService();
@@ -75,7 +77,18 @@ export const createApp = (dataSource: DataSource, sorobanClient: SorobanContract
   const webhookDispatcher = new WebhookDispatcher(dataSource);
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
-  app.use("/grants", buildGrantRouter(grantRepo, grantSyncService));
+  app.use(
+    "/grants",
+    buildGrantRouter(
+      grantRepo,
+      grantSyncService,
+      feedbackRepo,
+      signatureService,
+      activityRepo,
+      reviewerRepo,
+      responseCacheService,
+    ),
+  );
   app.use("/milestone_proof", buildMilestoneProofRouter(proofRepo, signatureService, grantRepo, userRepo));
   app.use("/search", buildSearchRouter(dataSource));
   app.use("/leaderboard", buildLeaderboardRouter(leaderboardService));

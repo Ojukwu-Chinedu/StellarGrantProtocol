@@ -3,6 +3,7 @@ const CACHE_PREFIX = "sg:cache:v1:";
 export const responseCacheKeys = {
   stats: () => `${CACHE_PREFIX}stats`,
   grantsFirstPage: (lang: string) => `${CACHE_PREFIX}grants:first:${lang}`,
+  grantFeedback: (grantId: number) => `${CACHE_PREFIX}feedback:${grantId}`,
 };
 
 /**

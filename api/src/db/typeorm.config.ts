@@ -25,6 +25,7 @@ import { WebhookSubscription } from "../entities/WebhookSubscription";
 import { WebhookDeliveryLog } from "../entities/WebhookDeliveryLog";
 import { Role } from "../entities/Role";
 import { UserRole } from "../entities/UserRole";
+import { GrantFeedback } from "../entities/GrantFeedback";
 
 // Used by the TypeORM CLI (migration:generate, migration:run, migration:revert)
 export default new DataSource({
@@ -35,7 +36,7 @@ export default new DataSource({
     Contributor, ReputationLog, AuditLog, UserWatchlist, Activity, GrantView,
     ReconciliationCheckpoint, RateLimitLog, Community, MilestoneComment,
     GrantHistory, FeeCollection, PlatformConfig, Report,
-    WebhookSubscription, WebhookDeliveryLog, Role, UserRole,
+    WebhookSubscription, WebhookDeliveryLog, Role, UserRole, GrantFeedback,
   ],
   migrations: ["src/db/migrations/*.ts"],
   synchronize: false,
