@@ -81,7 +81,18 @@ export const createApp = (dataSource: DataSource, sorobanClient: SorobanContract
   const webhookDispatcher = new WebhookDispatcher(dataSource);
 
   app.get("/health", (_req, res) => res.json({ ok: true }));
-  app.use("/grants", buildGrantRouter(grantRepo, grantSyncService));
+  app.use(
+    "/grants",
+    buildGrantRouter(
+      grantRepo,
+      grantSyncService,
+      feedbackRepo,
+      signatureService,
+      activityRepo,
+      reviewerRepo,
+      responseCacheService,
+    ),
+  );
   app.use("/grants", buildGrantDraftsRouter(dataSource, webhookDispatcher));
   app.use("/milestone_proof", buildMilestoneProofRouter(proofRepo, signatureService, grantRepo, userRepo));
   app.use("/search", buildSearchRouter(dataSource));
