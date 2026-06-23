@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
+mod audit;
 mod constants;
 mod events;
 mod governance;
@@ -12,9 +13,9 @@ mod types;
 pub use events::Events;
 pub use storage::Storage;
 pub use types::{
-    ContractError, ContractVersion, EscrowLifecycleState, EscrowMode, EscrowState, Grant, GrantFund,
-    GrantStatus, MigrationRecord, Milestone, MilestoneState, MilestoneSubmission, RegistryEntry,
-    RegistryEntryType,
+    AuditAction, AuditEntry, ContractError, ContractVersion, EscrowLifecycleState, EscrowMode,
+    EscrowState, Grant, GrantFund, GrantStatus, MigrationRecord, Milestone, MilestoneState,
+    MilestoneSubmission, RegistryEntry, RegistryEntryType,
 };
 
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String, Vec};
@@ -111,7 +112,16 @@ impl StellarGrantsContract {
         );
         Storage::set_multisig_signers(&env, grant_id, &soroban_sdk::Vec::new(&env));
 
-        Events::emit_grant_created(&env, grant_id, owner, title, total_amount);
+        Events::emit_grant_created(&env, grant_id, owner.clone(), title, total_amount);
+
+        audit::log(
+            &env,
+            grant_id,
+            AuditAction::GrantCreated,
+            &owner,
+            None,
+            Some(total_amount),
+        );
 
         Ok(grant_id)
     }
@@ -291,7 +301,16 @@ impl StellarGrantsContract {
 
             Storage::set_grant(&env, grant_id, &grant);
 
-            Events::emit_grant_cancelled(&env, grant_id, caller, reason, total_refundable);
+            Events::emit_grant_cancelled(&env, grant_id, caller.clone(), reason, total_refundable);
+
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCancelled,
+                &caller,
+                None,
+                Some(total_refundable),
+            );
 
             Ok(())
         })
@@ -480,10 +499,38 @@ impl StellarGrantsContract {
         let mut grant = Storage::get_grant_v(&env, grant_id);
         let mut milestone = Storage::get_milestone_v(&env, grant_id, milestone_idx);
 
-        let result =
-            governance::cast_vote(&env, &mut grant, &mut milestone, &reviewer, approve, feedback)?;
+        let result = governance::cast_vote(
+            &env,
+            &mut grant,
+            &mut milestone,
+            &reviewer,
+            approve,
+            feedback,
+        )?;
 
         Storage::set_milestone(&env, grant_id, milestone_idx, &milestone);
+
+        if result.quorum_reached {
+            if result.approved {
+                audit::log(
+                    &env,
+                    grant_id,
+                    AuditAction::MilestoneApproved,
+                    &reviewer,
+                    Some(milestone_idx),
+                    Some(milestone.amount),
+                );
+            } else {
+                audit::log(
+                    &env,
+                    grant_id,
+                    AuditAction::MilestoneRejected,
+                    &reviewer,
+                    Some(milestone_idx),
+                    None,
+                );
+            }
+        }
 
         Ok(result.quorum_reached)
     }
@@ -580,6 +627,7 @@ impl StellarGrantsContract {
             milestone_idx,
             description,
             proof_url,
+            &recipient,
         )
     }
 
@@ -618,6 +666,7 @@ impl StellarGrantsContract {
                 sub.idx,
                 sub.description.clone(),
                 sub.proof.clone(),
+                &recipient,
             )?;
         }
 
@@ -676,7 +725,16 @@ impl StellarGrantsContract {
 
             Storage::set_grant(&env, grant_id, &grant);
 
-            Events::emit_grant_funded(&env, grant_id, funder, amount, grant.escrow_balance);
+            Events::emit_grant_funded(&env, grant_id, funder.clone(), amount, grant.escrow_balance);
+
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantFunded,
+                &funder,
+                None,
+                Some(amount),
+            );
 
             Ok(())
         })
@@ -712,6 +770,11 @@ impl StellarGrantsContract {
         Ok(milestone.reasons)
     }
 
+    /// Return the full immutable audit log for a grant.
+    pub fn get_audit_log(env: Env, grant_id: u64) -> Vec<AuditEntry> {
+        audit::get_log(&env, grant_id)
+    }
+
     // ── Contract Version Query (#527) ───────────────────────────────────
 
     /// Query the stored contract version.
@@ -737,11 +800,7 @@ impl StellarGrantsContract {
     // ── Global Registry (#520) ──────────────────────────────────────────
 
     /// Paginated list of all registered contributors.
-    pub fn get_contributors_page(
-        env: Env,
-        offset: u32,
-        limit: u32,
-    ) -> Vec<RegistryEntry> {
+    pub fn get_contributors_page(env: Env, offset: u32, limit: u32) -> Vec<RegistryEntry> {
         registry::get_contributors_page(&env, offset, limit)
     }
 
@@ -964,6 +1023,7 @@ fn apply_milestone_submission(
     milestone_idx: u32,
     description: String,
     proof_url: String,
+    actor: &Address,
 ) -> Result<(), ContractError> {
     if milestone_idx >= grant.total_milestones {
         return Err(ContractError::InvalidInput);
@@ -992,6 +1052,15 @@ fn apply_milestone_submission(
 
     Storage::set_milestone(env, grant_id, milestone_idx, &milestone);
     Events::emit_milestone_submitted(env, grant_id, milestone_idx, description);
+
+    audit::log(
+        env,
+        grant_id,
+        AuditAction::MilestoneSubmitted,
+        actor,
+        Some(milestone_idx),
+        Some(grant.milestone_amount),
+    );
 
     Ok(())
 }

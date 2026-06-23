@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use crate::audit;
     use crate::storage::Storage;
-    use crate::types::{ContractError, Grant, GrantFund, GrantStatus, Milestone, MilestoneState};
+    use crate::types::{
+        AuditAction, ContractError, Grant, GrantFund, GrantStatus, Milestone, MilestoneState,
+    };
     use crate::StellarGrantsContract;
     use crate::StellarGrantsContractClient;
     use soroban_sdk::{testutils::Address as _, token, Address, Env, Map, String, Vec};
@@ -226,5 +229,189 @@ mod tests {
         let result = client.try_grant_cancel(&grant_id, &wrong_owner, &reason);
 
         assert_eq!(result, Err(Ok(ContractError::Unauthorized.into())));
+    }
+
+    #[test]
+    fn test_audit_log_grows_on_actions() {
+        let env = Env::default();
+        let (_, _, contract_id) = setup_test(&env);
+        let grant_id = 1u64;
+        let actor = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCreated,
+                &actor,
+                None,
+                Some(1000),
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantFunded,
+                &actor,
+                None,
+                Some(500),
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneSubmitted,
+                &actor,
+                Some(0),
+                Some(100),
+            );
+
+            assert_eq!(audit::log_length(&env, grant_id), 3);
+        });
+    }
+
+    #[test]
+    fn test_audit_get_log_returns_all_entries() {
+        let env = Env::default();
+        let (_, _, contract_id) = setup_test(&env);
+        let grant_id = 1u64;
+        let actor = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCreated,
+                &actor,
+                None,
+                None,
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantFunded,
+                &actor,
+                None,
+                Some(100),
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneSubmitted,
+                &actor,
+                Some(0),
+                None,
+            );
+
+            let log = audit::get_log(&env, grant_id);
+            assert_eq!(log.len(), 3);
+            assert_eq!(log.get(0).unwrap().action, AuditAction::GrantCreated);
+            assert_eq!(log.get(1).unwrap().action, AuditAction::GrantFunded);
+            assert_eq!(log.get(2).unwrap().action, AuditAction::MilestoneSubmitted);
+        });
+    }
+
+    #[test]
+    fn test_audit_get_recent_respects_limit() {
+        let env = Env::default();
+        let (_, _, contract_id) = setup_test(&env);
+        let grant_id = 1u64;
+        let actor = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCreated,
+                &actor,
+                None,
+                None,
+            );
+            audit::log(&env, grant_id, AuditAction::GrantFunded, &actor, None, None);
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneSubmitted,
+                &actor,
+                Some(0),
+                None,
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneApproved,
+                &actor,
+                Some(0),
+                None,
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCancelled,
+                &actor,
+                None,
+                None,
+            );
+
+            let recent = audit::get_recent(&env, grant_id, 3);
+            assert_eq!(recent.len(), 3);
+            assert_eq!(
+                recent.get(0).unwrap().action,
+                AuditAction::MilestoneSubmitted
+            );
+            assert_eq!(
+                recent.get(1).unwrap().action,
+                AuditAction::MilestoneApproved
+            );
+            assert_eq!(recent.get(2).unwrap().action, AuditAction::GrantCancelled);
+        });
+    }
+
+    #[test]
+    fn test_grant_create_appends_audit_entry() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _) = setup_test(&env);
+        let owner = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let grant_id = client.grant_create(
+            &owner,
+            &String::from_str(&env, "Title"),
+            &String::from_str(&env, "Description"),
+            &token,
+            &1000,
+            &100,
+            &10,
+            &Vec::new(&env),
+        );
+
+        let log = client.get_audit_log(&grant_id);
+        assert_eq!(log.len(), 1);
+        assert_eq!(log.get(0).unwrap().action, AuditAction::GrantCreated);
+        assert_eq!(log.get(0).unwrap().actor, owner);
+        assert_eq!(log.get(0).unwrap().amount, Some(1000));
+    }
+
+    #[test]
+    fn test_milestone_vote_approved_appends_audit_entry() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, contract_id) = setup_test(&env);
+        let grant_id = 1;
+        let owner = Address::generate(&env);
+        let token = Address::generate(&env);
+        let reviewer = Address::generate(&env);
+
+        let mut reviewers = Vec::new(&env);
+        reviewers.push_back(reviewer.clone());
+        create_grant(&env, &contract_id, grant_id, owner, token, reviewers);
+        create_milestone(&env, &contract_id, grant_id, 0, MilestoneState::Submitted);
+
+        client.milestone_vote(&grant_id, &0, &reviewer, &true, &None);
+
+        let log = client.get_audit_log(&grant_id);
+        assert_eq!(log.len(), 1);
+        assert_eq!(log.get(0).unwrap().action, AuditAction::MilestoneApproved);
     }
 }

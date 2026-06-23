@@ -1,6 +1,6 @@
 use crate::types::{
-    ContractError, ContractVersion, ContributorProfile, EscrowState, Grant, MigrationRecord,
-    Milestone, RegistryEntry,
+    AuditEntry, ContractError, ContractVersion, ContributorProfile, EscrowState, Grant,
+    MigrationRecord, Milestone, RegistryEntry,
 };
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
@@ -27,6 +27,8 @@ pub enum DataKey {
     // Global registry (#520)
     ContributorIndex,
     ReviewerAllowlist,
+    // Immutable audit trail (#523)
+    AuditLog(u64),
 }
 
 pub struct Storage;
@@ -214,9 +216,7 @@ impl Storage {
     }
 
     pub fn set_migration_log(env: &Env, log: &Vec<MigrationRecord>) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::MigrationLog, log);
+        env.storage().persistent().set(&DataKey::MigrationLog, log);
     }
 
     // ── Global Registry (#520) ────────────────────────────────────────
@@ -245,5 +245,32 @@ impl Storage {
         env.storage()
             .persistent()
             .set(&DataKey::ReviewerAllowlist, list);
+    }
+
+    // ── Immutable Audit Trail (#523) ──────────────────────────────────
+
+    const AUDIT_TTL_THRESHOLD: u32 = 100_000;
+    const AUDIT_TTL_EXTEND_TO: u32 = 1_000_000;
+
+    pub fn get_audit_log(env: &Env, grant_id: u64) -> Vec<AuditEntry> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::AuditLog(grant_id))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn append_audit_entry(env: &Env, grant_id: u64, entry: &AuditEntry) {
+        let key = DataKey::AuditLog(grant_id);
+        let mut log = Self::get_audit_log(env, grant_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(
+            &key,
+            Self::AUDIT_TTL_THRESHOLD,
+            Self::AUDIT_TTL_EXTEND_TO,
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(Self::AUDIT_TTL_THRESHOLD, Self::AUDIT_TTL_EXTEND_TO);
     }
 }
