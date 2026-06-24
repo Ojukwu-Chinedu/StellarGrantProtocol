@@ -1,6 +1,6 @@
 use crate::types::{
-    ContractError, ContractVersion, ContributorProfile, EscrowState, Grant, MigrationRecord,
-    Milestone, PauseRecord, RegistryEntry,
+    AuditEntry, ContractError, ContractVersion, ContributorProfile, EscrowState, Grant,
+    MigrationRecord, Milestone, RegistryEntry,
 };
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
@@ -27,9 +27,8 @@ pub enum DataKey {
     // Global registry (#520)
     ContributorIndex,
     ReviewerAllowlist,
-    // Emergency pause (#521)
-    IsPaused,
-    PauseHistory,
+    // Immutable audit trail (#523)
+    AuditLog(u64),
 }
 
 pub struct Storage;
@@ -248,45 +247,30 @@ impl Storage {
             .set(&DataKey::ReviewerAllowlist, list);
     }
 
-    // ── Emergency Pause (#521) ────────────────────────────────────────
+    // ── Immutable Audit Trail (#523) ──────────────────────────────────
 
-    pub fn get_is_paused(env: &Env) -> bool {
+    const AUDIT_TTL_THRESHOLD: u32 = 100_000;
+    const AUDIT_TTL_EXTEND_TO: u32 = 1_000_000;
+
+    pub fn get_audit_log(env: &Env, grant_id: u64) -> Vec<AuditEntry> {
         env.storage()
             .persistent()
-            .get(&DataKey::IsPaused)
-            .unwrap_or(false)
-    }
-
-    pub fn set_is_paused(env: &Env, paused: bool) {
-        env.storage().persistent().set(&DataKey::IsPaused, &paused);
-    }
-
-    pub fn get_pause_history(env: &Env) -> Vec<PauseRecord> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::PauseHistory)
+            .get(&DataKey::AuditLog(grant_id))
             .unwrap_or_else(|| Vec::new(env))
     }
 
-    pub fn append_pause_record(env: &Env, record: &PauseRecord) {
-        let mut history = Self::get_pause_history(env);
-        history.push_back(record.clone());
+    pub fn append_audit_entry(env: &Env, grant_id: u64, entry: &AuditEntry) {
+        let key = DataKey::AuditLog(grant_id);
+        let mut log = Self::get_audit_log(env, grant_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(
+            &key,
+            Self::AUDIT_TTL_THRESHOLD,
+            Self::AUDIT_TTL_EXTEND_TO,
+        );
         env.storage()
-            .persistent()
-            .set(&DataKey::PauseHistory, &history);
-    }
-
-    pub fn set_latest_pause_unpaused_at(env: &Env, unpaused_at: u64) {
-        let mut history = Self::get_pause_history(env);
-        if history.is_empty() {
-            return;
-        }
-        let last_idx = history.len() - 1;
-        let mut record = history.get(last_idx).unwrap();
-        record.unpaused_at = Some(unpaused_at);
-        history.set(last_idx, record);
-        env.storage()
-            .persistent()
-            .set(&DataKey::PauseHistory, &history);
+            .instance()
+            .extend_ttl(Self::AUDIT_TTL_THRESHOLD, Self::AUDIT_TTL_EXTEND_TO);
     }
 }

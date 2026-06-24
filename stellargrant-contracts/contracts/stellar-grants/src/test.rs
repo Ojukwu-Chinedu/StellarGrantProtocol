@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::constants;
+    use crate::audit;
     use crate::storage::Storage;
     use crate::types::{
-        BatchMilestoneVote, ContractError, Grant, GrantFund, GrantStatus, Milestone, MilestoneState,
+        AuditAction, ContractError, Grant, GrantFund, GrantStatus, Milestone, MilestoneState,
     };
     use crate::StellarGrantsContract;
     use crate::StellarGrantsContractClient;
@@ -231,41 +231,142 @@ mod tests {
         assert_eq!(result, Err(Ok(ContractError::Unauthorized.into())));
     }
 
-    fn setup_admin(client: &StellarGrantsContractClient<'_>, admin: &Address) {
-        client.initialize(admin);
-        client.set_global_admin(admin, admin);
-    }
-
     #[test]
-    fn test_paused_blocks_grant_create() {
+    fn test_audit_log_grows_on_actions() {
         let env = Env::default();
-        env.mock_all_auths();
+        let (_, _, contract_id) = setup_test(&env);
+        let grant_id = 1u64;
+        let actor = Address::generate(&env);
 
-        let (client, admin, _) = setup_test(&env);
-        setup_admin(&client, &admin);
+        env.as_contract(&contract_id, || {
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCreated,
+                &actor,
+                None,
+                Some(1000),
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantFunded,
+                &actor,
+                None,
+                Some(500),
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneSubmitted,
+                &actor,
+                Some(0),
+                Some(100),
+            );
 
-        let reason = String::from_str(&env, "critical exploit");
-        client.pause(&admin, &reason);
-        assert!(client.is_paused());
-
-        let owner = Address::generate(&env);
-        let token = Address::generate(&env);
-        let result = client.try_grant_create(
-            &owner,
-            &String::from_str(&env, "Title"),
-            &String::from_str(&env, "Description"),
-            &token,
-            &1000,
-            &100,
-            &10,
-            &Vec::new(&env),
-        );
-
-        assert_eq!(result, Err(Ok(ContractError::ContractPaused.into())));
+            assert_eq!(audit::log_length(&env, grant_id), 3);
+        });
     }
 
     #[test]
-    fn test_unpause_allows_grant_create() {
+    fn test_audit_get_log_returns_all_entries() {
+        let env = Env::default();
+        let (_, _, contract_id) = setup_test(&env);
+        let grant_id = 1u64;
+        let actor = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCreated,
+                &actor,
+                None,
+                None,
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantFunded,
+                &actor,
+                None,
+                Some(100),
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneSubmitted,
+                &actor,
+                Some(0),
+                None,
+            );
+
+            let log = audit::get_log(&env, grant_id);
+            assert_eq!(log.len(), 3);
+            assert_eq!(log.get(0).unwrap().action, AuditAction::GrantCreated);
+            assert_eq!(log.get(1).unwrap().action, AuditAction::GrantFunded);
+            assert_eq!(log.get(2).unwrap().action, AuditAction::MilestoneSubmitted);
+        });
+    }
+
+    #[test]
+    fn test_audit_get_recent_respects_limit() {
+        let env = Env::default();
+        let (_, _, contract_id) = setup_test(&env);
+        let grant_id = 1u64;
+        let actor = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCreated,
+                &actor,
+                None,
+                None,
+            );
+            audit::log(&env, grant_id, AuditAction::GrantFunded, &actor, None, None);
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneSubmitted,
+                &actor,
+                Some(0),
+                None,
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::MilestoneApproved,
+                &actor,
+                Some(0),
+                None,
+            );
+            audit::log(
+                &env,
+                grant_id,
+                AuditAction::GrantCancelled,
+                &actor,
+                None,
+                None,
+            );
+
+            let recent = audit::get_recent(&env, grant_id, 3);
+            assert_eq!(recent.len(), 3);
+            assert_eq!(
+                recent.get(0).unwrap().action,
+                AuditAction::MilestoneSubmitted
+            );
+            assert_eq!(
+                recent.get(1).unwrap().action,
+                AuditAction::MilestoneApproved
+            );
+            assert_eq!(recent.get(2).unwrap().action, AuditAction::GrantCancelled);
+        });
+    }
+
+    #[test]
+    fn test_grant_create_appends_audit_entry() {
         let env = Env::default();
         let (client, admin, _) = setup_test(&env);
         let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
@@ -291,14 +392,7 @@ mod tests {
         let (client, admin, _) = setup_test(&env);
         setup_admin(&client, &admin);
 
-        let reason = String::from_str(&env, "critical exploit");
-        client.pause(&admin, &reason);
-        client.unpause(&admin);
-        assert!(!client.is_paused());
-
-        let owner = Address::generate(&env);
-        let token = Address::generate(&env);
-        let result = client.try_grant_create(
+        let grant_id = client.grant_create(
             &owner,
             &String::from_str(&env, "Title"),
             &String::from_str(&env, "Description"),
@@ -309,42 +403,33 @@ mod tests {
             &Vec::new(&env),
         );
 
-        assert!(result.is_ok());
+        let log = client.get_audit_log(&grant_id);
+        assert_eq!(log.len(), 1);
+        assert_eq!(log.get(0).unwrap().action, AuditAction::GrantCreated);
+        assert_eq!(log.get(0).unwrap().actor, owner);
+        assert_eq!(log.get(0).unwrap().amount, Some(1000));
     }
 
     #[test]
-    fn test_pause_history_grows() {
+    fn test_milestone_vote_approved_appends_audit_entry() {
         let env = Env::default();
         env.mock_all_auths();
 
-        let (client, admin, _) = setup_test(&env);
-        setup_admin(&client, &admin);
+        let (client, _, contract_id) = setup_test(&env);
+        let grant_id = 1;
+        let owner = Address::generate(&env);
+        let token = Address::generate(&env);
+        let reviewer = Address::generate(&env);
 
-        assert_eq!(client.pause_history().len(), 0);
+        let mut reviewers = Vec::new(&env);
+        reviewers.push_back(reviewer.clone());
+        create_grant(&env, &contract_id, grant_id, owner, token, reviewers);
+        create_milestone(&env, &contract_id, grant_id, 0, MilestoneState::Submitted);
 
-        client.pause(&admin, &String::from_str(&env, "first incident"));
-        assert_eq!(client.pause_history().len(), 1);
+        client.milestone_vote(&grant_id, &0, &reviewer, &true, &None);
 
-        client.unpause(&admin);
-        client.pause(&admin, &String::from_str(&env, "second incident"));
-        assert_eq!(client.pause_history().len(), 2);
-
-        let latest = client.pause_history().get(1).unwrap();
-        assert_eq!(latest.reason, String::from_str(&env, "second incident"));
-        assert!(latest.unpaused_at.is_none());
-    }
-
-    #[test]
-    fn test_pause_unauthorized() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let (client, admin, _) = setup_test(&env);
-        setup_admin(&client, &admin);
-
-        let non_admin = Address::generate(&env);
-        let result = client.try_pause(&non_admin, &String::from_str(&env, "nope"));
-
-        assert_eq!(result, Err(Ok(ContractError::Unauthorized.into())));
+        let log = client.get_audit_log(&grant_id);
+        assert_eq!(log.len(), 1);
+        assert_eq!(log.get(0).unwrap().action, AuditAction::MilestoneApproved);
     }
 }

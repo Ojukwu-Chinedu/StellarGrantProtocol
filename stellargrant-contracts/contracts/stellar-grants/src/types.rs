@@ -152,9 +152,31 @@ pub struct MilestoneSubmission {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PauseRecord {
-    pub paused_by: Address,
-    pub paused_at: u64,
-    pub unpaused_at: Option<u64>,
-    pub reason: String,
+#[repr(u32)]
+pub enum AuditAction {
+    GrantCreated = 0,
+    GrantFunded = 1,
+    MilestoneSubmitted = 2,
+    MilestoneApproved = 3,
+    MilestoneRejected = 4,
+    MilestonePaid = 5,
+    DisputeRaised = 6,
+    DisputeResolved = 7,
+    GrantCancelled = 8,
+    GrantCompleted = 9,
+    AdminChanged = 10,
+    ContractPaused = 11,
+    ContractUnpaused = 12,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuditEntry {
+    pub action: AuditAction,
+    pub actor: Address,
+    pub grant_id: u64,
+    pub milestone_idx: Option<u32>,
+    pub amount: Option<i128>,
+    pub timestamp: u64,
+    pub ledger_sequence: u32,
 }
