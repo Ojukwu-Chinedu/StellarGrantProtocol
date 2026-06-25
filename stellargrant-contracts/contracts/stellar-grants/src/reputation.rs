@@ -73,6 +73,7 @@ pub fn record_completion(
     Ok(new_score)
 }
 
+#[allow(dead_code)]
 pub fn record_rejection(
     env: &Env,
     grant_id: u64,
@@ -96,6 +97,7 @@ pub fn record_rejection(
     Ok(new_score)
 }
 
+#[allow(dead_code)]
 pub fn tier_from_score(score: u32) -> ReputationTier {
     match score {
         0..=99 => ReputationTier::Unranked,

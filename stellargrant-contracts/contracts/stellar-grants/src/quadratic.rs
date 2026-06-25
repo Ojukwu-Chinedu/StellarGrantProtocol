@@ -41,8 +41,8 @@ pub fn cast_qv_vote(
         return Err(ContractError::InvalidInput);
     }
 
-    let mut credits = Storage::get_voice_credits(env, voter, grant_id)
-        .ok_or(ContractError::VoterNotAllocated)?;
+    let mut credits =
+        Storage::get_voice_credits(env, voter, grant_id).ok_or(ContractError::VoterNotAllocated)?;
 
     let cost = credit_cost(votes);
     let available = credits.total_credits.saturating_sub(credits.spent_credits);
@@ -148,8 +148,8 @@ mod tests {
         allocate_credits(&env, &alice, 1, 100).unwrap();
         allocate_credits(&env, &bob, 1, 100).unwrap();
         allocate_credits(&env, &carol, 1, 100).unwrap();
-        cast_qv_vote(&env, &alice, 1, 0, 3, true).unwrap();  // 3 for
-        cast_qv_vote(&env, &bob, 1, 0, 2, true).unwrap();    // 2 for
+        cast_qv_vote(&env, &alice, 1, 0, 3, true).unwrap(); // 3 for
+        cast_qv_vote(&env, &bob, 1, 0, 2, true).unwrap(); // 2 for
         cast_qv_vote(&env, &carol, 1, 0, 4, false).unwrap(); // 4 against
         let (for_v, against_v) = tally_votes(&env, 1, 0);
         assert_eq!(for_v, 5);

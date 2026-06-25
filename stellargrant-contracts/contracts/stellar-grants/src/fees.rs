@@ -4,6 +4,7 @@ use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::ContractError;
 
+#[allow(dead_code)]
 fn basis_points_of(amount: i128, bps: u32) -> Result<i128, ContractError> {
     amount
         .checked_mul(bps as i128)
@@ -12,6 +13,7 @@ fn basis_points_of(amount: i128, bps: u32) -> Result<i128, ContractError> {
         .ok_or(ContractError::InvalidInput)
 }
 
+#[allow(dead_code)]
 pub fn compute_fee(gross: i128, fee_bps: u32) -> Result<i128, ContractError> {
     if fee_bps == 0 || gross <= 0 {
         return Ok(0);
@@ -19,6 +21,7 @@ pub fn compute_fee(gross: i128, fee_bps: u32) -> Result<i128, ContractError> {
     basis_points_of(gross, fee_bps)
 }
 
+#[allow(dead_code)]
 pub fn deduct_and_transfer(
     env: &Env,
     gross: i128,
@@ -45,15 +48,14 @@ pub fn deduct_and_transfer(
         treasury.clone(),
     );
 
-    gross
-        .checked_sub(fee)
-        .ok_or(ContractError::InvalidInput)
+    gross.checked_sub(fee).ok_or(ContractError::InvalidInput)
 }
 
 pub fn total_fees_collected(env: &Env, token: &Address) -> i128 {
     Storage::get_fees_collected(env, token)
 }
 
+#[allow(dead_code)]
 pub fn set_treasury(env: &Env, admin: &Address, treasury: &Address) -> Result<(), ContractError> {
     if Storage::get_global_admin(env) != Some(admin.clone()) {
         return Err(ContractError::Unauthorized);
@@ -62,6 +64,7 @@ pub fn set_treasury(env: &Env, admin: &Address, treasury: &Address) -> Result<()
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn get_treasury(env: &Env) -> Result<Address, ContractError> {
     Storage::get_treasury(env).ok_or(ContractError::InvalidInput)
 }

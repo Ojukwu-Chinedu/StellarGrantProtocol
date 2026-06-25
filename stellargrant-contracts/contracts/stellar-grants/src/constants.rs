@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // ── Financial ────────────────────────────────────────────────────────────────
 pub const BASIS_POINTS_SCALE: u32 = 10_000;
 pub const DEFAULT_PROTOCOL_FEE_BPS: u32 = 100; // 1%

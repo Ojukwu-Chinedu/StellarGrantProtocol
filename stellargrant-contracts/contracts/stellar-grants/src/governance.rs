@@ -6,6 +6,7 @@ use crate::quadratic;
 use crate::storage::Storage;
 use crate::types::{ContractError, Grant, Milestone, MilestoneState, VotingMechanism};
 
+#[allow(dead_code)]
 pub struct VoteResult {
     pub approved: bool,
     pub quorum_reached: bool,
@@ -39,9 +40,23 @@ pub fn cast_vote(
         };
         if quorum {
             let approved = quadratic::is_approved_qv(env, grant.id, milestone.idx);
-            finalize_milestone(milestone, &VoteResult { approved, quorum_reached: true, approval_pct: for_v });
+            finalize_milestone(
+                milestone,
+                &VoteResult {
+                    approved,
+                    quorum_reached: true,
+                    approval_pct: for_v,
+                },
+            );
         }
-        Events::milestone_voted(env, grant.id, milestone.idx, reviewer.clone(), approve, reason);
+        Events::milestone_voted(
+            env,
+            grant.id,
+            milestone.idx,
+            reviewer.clone(),
+            approve,
+            reason,
+        );
         return Ok(result);
     }
 

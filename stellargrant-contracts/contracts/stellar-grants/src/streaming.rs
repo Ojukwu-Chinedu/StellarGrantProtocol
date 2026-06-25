@@ -79,7 +79,7 @@ pub fn create_stream(
         .ok_or(ContractError::InvalidInput)?;
 
     let token_client = token::Client::new(env, token);
-    token_client.transfer(sender, &env.current_contract_address(), &deposited);
+    token_client.transfer(sender, env.current_contract_address(), &deposited);
 
     let stream_id = Storage::next_stream_id(env);
     let stream = PaymentStream {
@@ -307,8 +307,9 @@ mod tests {
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
         let token_admin = Address::generate(&env);
-        let token_contract =
-            env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_contract = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         let stellar_asset = StellarAssetClient::new(&env, &token_contract);
         stellar_asset.mint(&sender, &10_000_000);
         let _ = admin;
@@ -318,8 +319,7 @@ mod tests {
     #[test]
     fn test_accrual_at_midpoint_returns_50_percent() {
         let (env, sender, recipient, token, _) = setup();
-        let stream_id =
-            create_stream(&env, &sender, &recipient, 1, &token, 100, 100).unwrap();
+        let stream_id = create_stream(&env, &sender, &recipient, 1, &token, 100, 100).unwrap();
         // Advance to midpoint
         env.ledger().with_mut(|li| li.sequence_number += 50);
         let stream = Storage::get_stream(&env, stream_id).unwrap();
@@ -330,8 +330,7 @@ mod tests {
     #[test]
     fn test_double_withdraw_returns_zero_second_time() {
         let (env, sender, recipient, token, _) = setup();
-        let stream_id =
-            create_stream(&env, &sender, &recipient, 1, &token, 100, 100).unwrap();
+        let stream_id = create_stream(&env, &sender, &recipient, 1, &token, 100, 100).unwrap();
         env.ledger().with_mut(|li| li.sequence_number += 50);
         let first = withdraw_stream(&env, &recipient, stream_id).unwrap();
         assert!(first > 0);
@@ -342,20 +341,17 @@ mod tests {
     #[test]
     fn test_cancel_returns_correct_split() {
         let (env, sender, recipient, token, _) = setup();
-        let stream_id =
-            create_stream(&env, &sender, &recipient, 1, &token, 100, 100).unwrap();
+        let stream_id = create_stream(&env, &sender, &recipient, 1, &token, 100, 100).unwrap();
         env.ledger().with_mut(|li| li.sequence_number += 30);
-        let (sender_refund, recipient_payout) =
-            cancel_stream(&env, &sender, stream_id).unwrap();
+        let (sender_refund, recipient_payout) = cancel_stream(&env, &sender, stream_id).unwrap();
         assert_eq!(recipient_payout, 3_000); // 30 * 100
-        assert_eq!(sender_refund, 7_000);    // 70 * 100
+        assert_eq!(sender_refund, 7_000); // 70 * 100
     }
 
     #[test]
     fn test_pause_resume_maintains_end_ledger() {
         let (env, sender, recipient, token, _) = setup();
-        let stream_id =
-            create_stream(&env, &sender, &recipient, 1, &token, 1, 100).unwrap();
+        let stream_id = create_stream(&env, &sender, &recipient, 1, &token, 1, 100).unwrap();
         let stream_before = Storage::get_stream(&env, stream_id).unwrap();
         let original_end = stream_before.end_ledger;
 

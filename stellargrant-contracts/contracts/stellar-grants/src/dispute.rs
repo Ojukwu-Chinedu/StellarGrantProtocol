@@ -160,11 +160,7 @@ pub fn resolve_dispute(
                             .ok_or(ContractError::InvalidInput)?
                     };
                     if share > 0 {
-                        tok_client.transfer(
-                            &env.current_contract_address(),
-                            &fund.funder,
-                            &share,
-                        );
+                        tok_client.transfer(&env.current_contract_address(), &fund.funder, &share);
                         distributed = distributed.saturating_add(share);
                     }
                 }

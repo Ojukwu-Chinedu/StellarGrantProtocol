@@ -42,11 +42,7 @@ fn fetch_oracle_price(
     let mut args: Vec<Val> = Vec::new(env);
     args.push_back(token.clone().into_val(env));
 
-    let result: Option<(i128, u64)> = env.invoke_contract(
-        oracle,
-        &Symbol::new(env, "price"),
-        args,
-    );
+    let result: Option<(i128, u64)> = env.invoke_contract(oracle, &Symbol::new(env, "price"), args);
 
     result.ok_or(ContractError::InvalidInput)
 }
@@ -131,7 +127,11 @@ pub fn convert_amount(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{contract, contractimpl, contracttype, testutils::{Address as _, Ledger}, Address, Env};
+    use soroban_sdk::{
+        contract, contractimpl, contracttype,
+        testutils::{Address as _, Ledger},
+        Address, Env,
+    };
 
     #[contracttype]
     #[derive(Clone)]
@@ -220,7 +220,10 @@ mod tests {
         oracle_client.set_price(&base_token, &PRICE_SCALE, &100);
 
         env.ledger().set_timestamp(10_000);
-        assert_eq!(get_price(&env, &base_token), Err(ContractError::InvalidInput));
+        assert_eq!(
+            get_price(&env, &base_token),
+            Err(ContractError::InvalidInput)
+        );
     }
 
     #[test]

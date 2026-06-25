@@ -1,6 +1,8 @@
 use soroban_sdk::{contractevent, token, Address, Env, String};
 
-use crate::constants::{BASIS_POINTS_SCALE, DEFAULT_INSURANCE_DURATION_LEDGERS, DEFAULT_INSURANCE_PREMIUM_RATE_BPS};
+use crate::constants::{
+    BASIS_POINTS_SCALE, DEFAULT_INSURANCE_DURATION_LEDGERS, DEFAULT_INSURANCE_PREMIUM_RATE_BPS,
+};
 use crate::errors::ContractError;
 use crate::storage::Storage;
 use crate::types::{InsuranceClaim, InsuranceClaimStatus, InsurancePolicy};
@@ -66,7 +68,7 @@ pub fn purchase_policy(
 
     if premium > 0 {
         let token_client = token::Client::new(env, token);
-        token_client.transfer(policyholder, &env.current_contract_address(), &premium);
+        token_client.transfer(policyholder, env.current_contract_address(), &premium);
     }
 
     // Add premium to pool
@@ -207,7 +209,11 @@ pub fn approve_claim(
     Storage::set_insurance_claim(env, &claim);
 
     let token_client = token::Client::new(env, &policy.token);
-    token_client.transfer(&env.current_contract_address(), &claim.claimant, &actual_payout);
+    token_client.transfer(
+        &env.current_contract_address(),
+        &claim.claimant,
+        &actual_payout,
+    );
 
     ClaimApproved {
         claim_id,
@@ -269,8 +275,9 @@ mod tests {
         let admin = Address::generate(&env);
         let policyholder = Address::generate(&env);
         let token_admin = Address::generate(&env);
-        let token_contract =
-            env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_contract = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         let stellar_asset = StellarAssetClient::new(&env, &token_contract);
         stellar_asset.mint(&policyholder, &10_000_000);
         (env, admin, policyholder, token_contract)

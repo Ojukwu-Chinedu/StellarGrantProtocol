@@ -462,12 +462,7 @@ impl Events {
 
     // ── Issue #514: Dispute emit methods ──────────────────────────────────────
 
-    pub fn emit_dispute_raised(
-        env: &Env,
-        grant_id: u64,
-        milestone_idx: u32,
-        raised_by: Address,
-    ) {
+    pub fn emit_dispute_raised(env: &Env, grant_id: u64, milestone_idx: u32, raised_by: Address) {
         let event = DisputeRaised {
             grant_id,
             milestone_idx,
@@ -477,12 +472,7 @@ impl Events {
         event.publish(env);
     }
 
-    pub fn emit_arbiter_assigned(
-        env: &Env,
-        grant_id: u64,
-        milestone_idx: u32,
-        arbiter: Address,
-    ) {
+    pub fn emit_arbiter_assigned(env: &Env, grant_id: u64, milestone_idx: u32, arbiter: Address) {
         let event = ArbiterAssigned {
             grant_id,
             milestone_idx,
@@ -580,4 +570,55 @@ impl Events {
         };
         event.publish(env);
     }
+}
+
+// ── Issue #530: Multisig events ───────────────────────────────────────────────
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultisigProposalCreated {
+    pub proposal_id: u32,
+    pub grant_id: u64,
+    pub created_by: Address,
+    pub threshold: u32,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultisigSigned {
+    pub proposal_id: u32,
+    pub signer: Address,
+    pub approved: bool,
+    pub total_weight_signed: u32,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultisigExecuted {
+    pub proposal_id: u32,
+    pub grant_id: u64,
+    pub executed_by: Address,
+    pub timestamp: u64,
+}
+
+// ── Issue #548: Compliance events ─────────────────────────────────────────────
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComplianceAttested {
+    pub subject: Address,
+    pub attested_by: Address,
+    pub level: u32,
+    pub expires_at: u64,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComplianceRevoked {
+    pub subject: Address,
+    pub revoked_by: Address,
+    pub timestamp: u64,
 }

@@ -1,8 +1,9 @@
 use crate::types::{
-    AuditEntry, ContractError, ContractVersion, ContributorProfile, Dispute, EscrowState, Grant,
-    HookEvent, HookRegistration, InsuranceClaim, InsurancePolicy, MigrationRecord, Milestone,
-    PauseRecord, PaymentStream, ProtocolConfig, QuadraticVoteRecord, RegistryEntry, OracleConfig,
-    VoiceCredits, VotingMechanism,
+    AuditEntry, ComplianceAttestation, ContractError, ContractVersion, ContributorProfile, Dispute,
+    EscrowAccount, EscrowState, FunderLedger, Grant, HookEvent, HookRegistration, InsuranceClaim,
+    InsurancePolicy, MigrationRecord, Milestone, MultisigProposal, OracleConfig, PauseRecord,
+    PaymentStream, ProtocolConfig, ProtocolMetrics, QuadraticVoteRecord, RegistryEntry,
+    TokenMetric, VoiceCredits, VotingMechanism,
 };
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
@@ -58,6 +59,19 @@ pub enum DataKey {
     FeesCollected(Address),
     // Issue #524: price oracle configuration
     OracleConfig,
+    // Issue #529: escrow module
+    EscrowAccount(u64),
+    FunderContribution(u64, Address),
+    EscrowFundersList(u64),
+    // Issue #530: multisig module
+    MultisigProposal(u32),
+    MultisigProposalCounter,
+    // Issue #540: protocol metrics
+    ProtocolMetrics,
+    TokenMetrics(Address),
+    // Issue #548: compliance module
+    ComplianceAttestation(Address),
+    ComplianceVerifier,
 }
 
 const PERSISTENT_TTL_THRESHOLD: u32 = 100_000;
@@ -328,9 +342,7 @@ impl Storage {
     }
 
     pub fn set_is_paused(env: &Env, paused: bool) {
-        env.storage()
-            .persistent()
-            .set(&DataKey::IsPaused, &paused);
+        env.storage().persistent().set(&DataKey::IsPaused, &paused);
     }
 
     pub fn get_pause_history(env: &Env) -> Vec<PauseRecord> {
@@ -371,16 +383,12 @@ impl Storage {
             .get(&DataKey::StreamCounter)
             .unwrap_or(0);
         id += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::StreamCounter, &id);
+        env.storage().persistent().set(&DataKey::StreamCounter, &id);
         id
     }
 
     pub fn get_stream(env: &Env, stream_id: u32) -> Option<PaymentStream> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Stream(stream_id))
+        env.storage().persistent().get(&DataKey::Stream(stream_id))
     }
 
     pub fn set_stream(env: &Env, stream: &PaymentStream) {
@@ -595,45 +603,132 @@ impl Storage {
         Self::bump_persistent_ttl(env, &key);
     }
 
-    // ── Emergency pause storage ───────────────────────────────────────────────
+    // ── Issue #529: Escrow Module ─────────────────────────────────────────────
 
-    pub fn get_is_paused(env: &Env) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::IsPaused)
-            .unwrap_or(false)
-    }
-
-    pub fn set_is_paused(env: &Env, val: bool) {
-        env.storage().persistent().set(&DataKey::IsPaused, &val);
-    }
-
-    pub fn get_pause_history(env: &Env) -> soroban_sdk::Vec<PauseRecord> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::PauseHistory)
-            .unwrap_or_else(|| soroban_sdk::Vec::new(env))
-    }
-
-    pub fn append_pause_record(env: &Env, record: &PauseRecord) {
-        let mut history = Self::get_pause_history(env);
-        history.push_back(record.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::PauseHistory, &history);
-    }
-
-    pub fn set_latest_pause_unpaused_at(env: &Env, timestamp: u64) {
-        let mut history = Self::get_pause_history(env);
-        let len = history.len();
-        if len == 0 {
-            return;
+    pub fn get_escrow_account(env: &Env, grant_id: u64) -> Option<EscrowAccount> {
+        let key = DataKey::EscrowAccount(grant_id);
+        let v = env.storage().persistent().get(&key);
+        if v.is_some() {
+            Self::bump_persistent_ttl(env, &key);
         }
-        let mut last = history.get(len - 1).unwrap();
-        last.unpaused_at = Some(timestamp);
-        history.set(len - 1, last);
+        v
+    }
+
+    pub fn set_escrow_account(env: &Env, grant_id: u64, account: &EscrowAccount) {
+        let key = DataKey::EscrowAccount(grant_id);
+        env.storage().persistent().set(&key, account);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_funder_ledger(env: &Env, grant_id: u64, funder: &Address) -> Option<FunderLedger> {
         env.storage()
             .persistent()
-            .set(&DataKey::PauseHistory, &history);
+            .get(&DataKey::FunderContribution(grant_id, funder.clone()))
+    }
+
+    pub fn set_funder_ledger(env: &Env, grant_id: u64, funder: &Address, ledger: &FunderLedger) {
+        let key = DataKey::FunderContribution(grant_id, funder.clone());
+        env.storage().persistent().set(&key, ledger);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_escrow_funders_list(env: &Env, grant_id: u64) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::EscrowFundersList(grant_id))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_escrow_funders_list(env: &Env, grant_id: u64, list: &Vec<Address>) {
+        let key = DataKey::EscrowFundersList(grant_id);
+        env.storage().persistent().set(&key, list);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #530: Multisig Module ───────────────────────────────────────────
+
+    pub fn next_multisig_proposal_id(env: &Env) -> u32 {
+        let mut id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MultisigProposalCounter)
+            .unwrap_or(0);
+        id += 1;
+        env.storage()
+            .persistent()
+            .set(&DataKey::MultisigProposalCounter, &id);
+        id
+    }
+
+    pub fn get_multisig_proposal(env: &Env, proposal_id: u32) -> Option<MultisigProposal> {
+        let key = DataKey::MultisigProposal(proposal_id);
+        let v = env.storage().persistent().get(&key);
+        if v.is_some() {
+            Self::bump_persistent_ttl(env, &key);
+        }
+        v
+    }
+
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultisigProposal) {
+        let key = DataKey::MultisigProposal(proposal.id);
+        env.storage().persistent().set(&key, proposal);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #540: Protocol Metrics ──────────────────────────────────────────
+
+    pub fn get_protocol_metrics(env: &Env) -> Option<ProtocolMetrics> {
+        env.storage().persistent().get(&DataKey::ProtocolMetrics)
+    }
+
+    pub fn set_protocol_metrics(env: &Env, metrics: &ProtocolMetrics) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ProtocolMetrics, metrics);
+    }
+
+    pub fn get_token_metrics(env: &Env, token: &Address) -> Option<TokenMetric> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TokenMetrics(token.clone()))
+    }
+
+    pub fn set_token_metrics(env: &Env, metrics: &TokenMetric) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::TokenMetrics(metrics.token.clone()), metrics);
+    }
+
+    // ── Issue #548: Compliance Module ─────────────────────────────────────────
+
+    pub fn get_compliance_attestation(
+        env: &Env,
+        address: &Address,
+    ) -> Option<ComplianceAttestation> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ComplianceAttestation(address.clone()))
+    }
+
+    pub fn set_compliance_attestation(env: &Env, attestation: &ComplianceAttestation) {
+        let key = DataKey::ComplianceAttestation(attestation.subject.clone());
+        env.storage().persistent().set(&key, attestation);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn remove_compliance_attestation(env: &Env, address: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::ComplianceAttestation(address.clone()));
+    }
+
+    pub fn get_compliance_verifier(env: &Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::ComplianceVerifier)
+    }
+
+    pub fn set_compliance_verifier(env: &Env, verifier: &Address) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ComplianceVerifier, verifier);
     }
 }

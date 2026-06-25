@@ -101,6 +101,7 @@ pub struct Grant {
     pub funders: Vec<GrantFund>,
     pub reason: Option<String>,
     pub timestamp: u64,
+    pub require_compliance: Option<ComplianceLevel>,
 }
 
 #[contracttype]
@@ -327,8 +328,8 @@ pub struct HookCallResult {
 }
 
 /// Opaque byte payload passed to hook callbacks.
+#[allow(dead_code)]
 pub type HookPayload = Bytes;
-
 
 // ── Issue #514: Dispute Resolution Module ────────────────────────────────────
 
@@ -384,6 +385,8 @@ pub struct ProtocolConfig {
     pub dispute_window_ledgers: u32,
     pub max_grant_title_len: u32,
     pub max_grant_desc_len: u32,
+    /// Grants with total_amount above this threshold require multisig release (0 = disabled).
+    pub multisig_threshold: i128,
 }
 
 // ── Issue #517: Protocol Fee Collection ──────────────────────────────────────
@@ -417,4 +420,123 @@ pub struct PriceQuote {
     pub price_in_base: i128,
     pub fetched_at: u64,
     pub is_stale: bool,
+}
+
+// ── Issue #529: Escrow Module ─────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EscrowAccount {
+    pub owner: Address,
+    pub token: Address,
+    pub balance: i128,
+    pub total_deposited: i128,
+    pub total_released: i128,
+    /// True when a dispute is open; blocks release but not deposit.
+    pub locked: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunderLedger {
+    pub funder: Address,
+    pub contributed: i128,
+    pub refunded: i128,
+    pub last_contribution_at: u64,
+}
+
+// ── Issue #530: M-of-N Multi-Signature Fund Release ───────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SignatureStatus {
+    Pending = 0,
+    Signed = 1,
+    Rejected = 2,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultisigSigner {
+    pub address: Address,
+    pub weight: u32,
+    pub status: SignatureStatus,
+    pub signed_at: Option<u64>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MultisigProposal {
+    pub id: u32,
+    pub grant_id: u64,
+    pub action_payload: Bytes,
+    pub signers: Vec<MultisigSigner>,
+    pub threshold: u32,
+    pub total_weight_signed: u32,
+    pub executed: bool,
+    pub expired_at: u64,
+    pub created_by: Address,
+    pub created_at: u64,
+}
+
+// ── Issue #540: Protocol-Wide On-Chain Metrics ────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenMetric {
+    pub token: Address,
+    pub total_locked: i128,
+    pub total_paid_out: i128,
+    pub total_refunded: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProtocolMetrics {
+    pub total_grants_created: u32,
+    pub total_grants_active: u32,
+    pub total_grants_completed: u32,
+    pub total_grants_cancelled: u32,
+    pub total_milestones_approved: u32,
+    pub total_milestones_rejected: u32,
+    pub total_milestones_paid: u32,
+    pub total_contributors_registered: u32,
+    pub total_disputes_raised: u32,
+    pub total_disputes_resolved: u32,
+    pub total_bounties_created: u32,
+    pub total_bounties_awarded: u32,
+    pub last_updated: u64,
+}
+
+// ── Issue #548: KYC/AML Compliance Integration Hooks ─────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ComplianceStatus {
+    Unverified = 0,
+    Pending = 1,
+    Approved = 2,
+    Rejected = 3,
+    Expired = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ComplianceLevel {
+    None = 0,
+    Basic = 1,
+    Standard = 2,
+    Enhanced = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComplianceAttestation {
+    pub subject: Address,
+    pub status: ComplianceStatus,
+    pub level: ComplianceLevel,
+    pub attested_by: Address,
+    pub attested_at: u64,
+    pub expires_at: u64,
+    pub jurisdiction: String,
 }

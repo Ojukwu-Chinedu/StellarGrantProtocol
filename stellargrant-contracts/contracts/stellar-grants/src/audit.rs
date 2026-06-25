@@ -30,6 +30,7 @@ pub fn get_log(env: &Env, grant_id: u64) -> Vec<AuditEntry> {
 }
 
 /// Return the last N entries from the audit log.
+#[allow(dead_code)]
 pub fn get_recent(env: &Env, grant_id: u64, n: u32) -> Vec<AuditEntry> {
     let log = Storage::get_audit_log(env, grant_id);
     let len = log.len();
@@ -37,7 +38,7 @@ pub fn get_recent(env: &Env, grant_id: u64, n: u32) -> Vec<AuditEntry> {
         return Vec::new(env);
     }
 
-    let start = if len > n { len - n } else { 0 };
+    let start = len.saturating_sub(n);
     let mut result = Vec::new(env);
     for i in start..len {
         result.push_back(log.get(i).unwrap());
@@ -46,6 +47,7 @@ pub fn get_recent(env: &Env, grant_id: u64, n: u32) -> Vec<AuditEntry> {
 }
 
 /// Return the count of audit entries for a grant.
+#[allow(dead_code)]
 pub fn log_length(env: &Env, grant_id: u64) -> u32 {
     Storage::get_audit_log(env, grant_id).len()
 }

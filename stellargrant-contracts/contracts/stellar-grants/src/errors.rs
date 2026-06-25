@@ -49,4 +49,19 @@ pub enum ContractError {
     HookNotFound = 39,
     HookLimitExceeded = 40,
     HookAlreadyInactive = 41,
+    // Escrow (#529)
+    EscrowLocked = 42,
+    EscrowAlreadyOpen = 43,
+    EscrowNotFound = 44,
+    // Multisig (#530)
+    ProposalNotFound = 45,
+    ProposalExpired = 46,
+    ProposalAlreadyExecuted = 47,
+    ThresholdNotMet = 48,
+    NotAProposalSigner = 49,
+    // Compliance (#548)
+    ComplianceNotVerified = 50,
+    ComplianceCheckFailed = 51,
+    VerifierNotSet = 52,
+    NotVerifier = 53,
 }

@@ -121,6 +121,7 @@ pub fn contributor_count(env: &Env) -> u32 {
 }
 
 /// Deactivate a contributor entry (soft-delete). Admin only.
+#[allow(dead_code)]
 pub fn deactivate(env: &Env, admin: &Address, address: &Address) -> Result<(), ContractError> {
     require_global_admin(env, admin)?;
 

@@ -106,17 +106,13 @@ pub fn trigger(env: &Env, event: HookEvent, payload: Bytes) -> Vec<HookCallResul
         }
 
         // Use try_invoke_contract to avoid propagating failures
-        let args: Vec<Val> = vec![
-            env,
-            event_u32.into(),
-            payload.clone().into(),
-        ];
-        type HookResult = Result<Result<Val, soroban_sdk::ConversionError>, Result<soroban_sdk::Error, InvokeError>>;
-        let result: HookResult = env.try_invoke_contract(
-            &hook.target_contract,
-            &Symbol::new(env, "on_hook"),
-            args,
-        );
+        let args: Vec<Val> = vec![env, event_u32.into(), payload.clone().into()];
+        type HookResult = Result<
+            Result<Val, soroban_sdk::ConversionError>,
+            Result<soroban_sdk::Error, InvokeError>,
+        >;
+        let result: HookResult =
+            env.try_invoke_contract(&hook.target_contract, &Symbol::new(env, "on_hook"), args);
 
         let success = matches!(result, Ok(Ok(_)));
         let error_code: Option<u32> = if success { None } else { Some(1) };
