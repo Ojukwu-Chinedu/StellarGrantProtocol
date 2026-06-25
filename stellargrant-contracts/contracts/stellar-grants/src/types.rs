@@ -685,6 +685,90 @@ pub struct RenewalProposal {
     pub new_grant_id: Option<u64>,
 }
 
+// ── Issue #532: Protocol-wide DAO governance ──────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum DaoProposalStatus {
+    Active = 0,
+    Passed = 1,
+    Rejected = 2,
+    Executed = 3,
+    Cancelled = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DaoProposalType {
+    UpdateConfig(ProtocolConfig),
+    ChangeAdmin(Address),
+    TreasuryWithdrawal(Address, Address, i128),
+    Generic,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DaoProposal {
+    pub id: u64,
+    pub proposer: Address,
+    pub title: String,
+    pub description: String,
+    pub proposal_type: DaoProposalType,
+    pub status: DaoProposalStatus,
+    pub votes_for: u64,
+    pub votes_against: u64,
+    pub created_at: u64,
+    pub voting_deadline: u64,
+    pub executed_at: Option<u64>,
+}
+
+// ── Issue #533: Competitive bounty-mode grants ────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum BountyStatus {
+    Open = 0,
+    UnderReview = 1,
+    Awarded = 2,
+    Cancelled = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountyGrant {
+    pub id: u64,
+    pub owner: Address,
+    pub title: String,
+    pub description: String,
+    pub token: Address,
+    pub prize_amount: i128,
+    pub status: BountyStatus,
+    pub submission_deadline: u64,
+    pub winner: Option<Address>,
+    pub created_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BountySubmission {
+    pub bounty_id: u64,
+    pub submitter: Address,
+    pub proof_url: String,
+    pub submitted_at: u64,
+}
+
+// ── Issue #519: Protocol treasury management ──────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TreasurySnapshot {
+    pub token: Address,
+    pub balance: i128,
+    pub taken_at: u64,
+}
+
 // ── Issue #576: In-Escrow Token Swap ──────────────────────────────────────────
 
 #[contracttype]

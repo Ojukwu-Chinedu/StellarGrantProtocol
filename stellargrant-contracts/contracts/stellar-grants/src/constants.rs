@@ -54,6 +54,15 @@ pub const MAX_HOOKS_PER_EVENT: u32 = 5;
 // ── Checklist (#581) ─────────────────────────────────────────────────────────
 pub const MAX_CRITERIA_PER_MILESTONE: u32 = 20;
 
+// ── DAO Governance (#532) ───────────────────────────────────────────────────
+pub const DEFAULT_DAO_VOTING_PERIOD_LEDGERS: u32 = 50_400; // ~7 days
+pub const DEFAULT_DAO_QUORUM_VOTES: u64 = 3;
+pub const MAX_DAO_TITLE_LEN: u32 = 128;
+pub const MAX_DAO_DESCRIPTION_LEN: u32 = 2_048;
+
+// ── Bounty-Mode Grants (#533) ───────────────────────────────────────────────
+pub const MAX_BOUNTY_SUBMISSIONS: u32 = 50;
+
 #[cfg(test)]
 mod tests {
     use super::*;

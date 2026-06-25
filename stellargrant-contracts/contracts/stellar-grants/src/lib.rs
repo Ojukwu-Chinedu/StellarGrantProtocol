@@ -1,11 +1,13 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 mod audit;
+mod bounty;
 mod checklist;
 mod circuit_breaker;
 mod compliance;
 mod config;
 mod constants;
+mod dao;
 mod dispute;
 mod emergency;
 mod errors;
@@ -21,6 +23,7 @@ mod metrics;
 mod migration;
 mod multisig;
 mod oracle;
+mod pagination;
 mod quadratic;
 mod reentrancy;
 mod registry;
@@ -31,6 +34,7 @@ mod scoring;
 mod storage;
 mod streaming;
 mod token_swap;
+mod treasury;
 mod types;
 
 pub use errors::ContractError;
@@ -67,12 +71,15 @@ impl StellarGrantsContract {
     }
 
     /// Configure or rotate a single global admin address.
+    /// Once DAO mode is enabled, admin rotation must go through a passed
+    /// `DaoProposalType::ChangeAdmin` proposal instead of this direct call.
     pub fn set_global_admin(
         env: Env,
         caller: Address,
         new_admin: Address,
     ) -> Result<(), ContractError> {
         caller.require_auth();
+        dao::require_dao_mode_disabled(&env)?;
         if let Some(current_admin) = Storage::get_global_admin(&env) {
             if current_admin != caller {
                 return Err(ContractError::Unauthorized);
@@ -734,6 +741,20 @@ impl StellarGrantsContract {
         Storage::get_grant(&env, grant_id).ok_or(ContractError::GrantNotFound)
     }
 
+    /// Paginated list of all grants, ordered by ascending grant ID.
+    pub fn get_grants_page(env: Env, offset: u32, limit: u32) -> Vec<Grant> {
+        let total = Storage::get_grant_count(&env);
+        let mut all: Vec<Grant> = Vec::new(&env);
+        let mut id: u64 = 1;
+        while id <= total {
+            if let Some(grant) = Storage::get_grant(&env, id) {
+                all.push_back(grant);
+            }
+            id += 1;
+        }
+        pagination::paginate(&env, &all, offset, limit)
+    }
+
     pub fn get_milestone(
         env: Env,
         grant_id: u64,
@@ -1310,12 +1331,16 @@ impl StellarGrantsContract {
 
     // ── Issue #516: Runtime Protocol Configuration Entry Points ──────────────
 
+    /// Update the runtime protocol configuration directly. Admin only, and
+    /// only while DAO mode is disabled — once enabled, config changes must
+    /// go through a passed `DaoProposalType::UpdateConfig` proposal.
     pub fn update_config(
         env: Env,
         admin: Address,
         new_config: ProtocolConfig,
     ) -> Result<(), ContractError> {
         admin.require_auth();
+        dao::require_dao_mode_disabled(&env)?;
         config::set_config(&env, &admin, new_config)
     }
 
