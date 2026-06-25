@@ -1,8 +1,9 @@
 use crate::types::{
     AuditEntry, ComplianceAttestation, ContractError, ContractVersion, ContributorProfile, Dispute,
-    EscrowAccount, EscrowState, FunderLedger, Grant, HookEvent, HookRegistration, InsuranceClaim,
-    InsurancePolicy, MigrationRecord, Milestone, MultisigProposal, OracleConfig, PauseRecord,
-    PaymentStream, ProtocolConfig, ProtocolMetrics, QuadraticVoteRecord, RegistryEntry,
+    EscrowAccount, EscrowState, FunderLedger, Grant, GrantCategory, GrantTag, HookEvent,
+    HookRegistration, InsuranceClaim, InsurancePolicy, MigrationRecord, Milestone, MultisigProposal,
+    OracleConfig, PauseRecord, PaymentStream, ProtocolConfig, ProtocolMetrics, QuadraticVoteRecord,
+    RegistryEntry, RelayAllowance, RelayConfig, RenewalProposal, ReviewerProfile, ReviewerRequest,
     TokenMetric, VoiceCredits, VotingMechanism,
 };
 use soroban_sdk::{contracttype, Address, Env, Vec};
@@ -72,6 +73,20 @@ pub enum DataKey {
     // Issue #548: compliance module
     ComplianceAttestation(Address),
     ComplianceVerifier,
+    // Issue #585: relay module
+    RelayConfig,
+    RelayAllowance(Address),
+    RelayNonce(Address),
+    // Issue #567: reviewer pool module
+    ReviewerProfile(Address),
+    ReviewerRequest(u64, Address),
+    // Issue #571: grant tags module
+    GrantTags(u64),
+    TagIndex(u32),
+    CategoryList,
+    // Issue #577: grant renewal module
+    RenewalProposal(u64),
+    RenewalHistory(u64),
 }
 
 const PERSISTENT_TTL_THRESHOLD: u32 = 100_000;
@@ -730,5 +745,132 @@ impl Storage {
         env.storage()
             .persistent()
             .set(&DataKey::ComplianceVerifier, verifier);
+    }
+
+    // ── Issue #585: Relay Module ──────────────────────────────────────────────
+
+    pub fn get_relay_config(env: &Env) -> Option<RelayConfig> {
+        env.storage().persistent().get(&DataKey::RelayConfig)
+    }
+
+    pub fn set_relay_config(env: &Env, config: &RelayConfig) {
+        env.storage().persistent().set(&DataKey::RelayConfig, config);
+    }
+
+    pub fn get_relay_allowance(env: &Env, address: &Address) -> Option<RelayAllowance> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RelayAllowance(address.clone()))
+    }
+
+    pub fn set_relay_allowance(env: &Env, allowance: &RelayAllowance) {
+        env.storage().persistent().set(
+            &DataKey::RelayAllowance(allowance.address.clone()),
+            allowance,
+        );
+    }
+
+    pub fn get_relay_nonce(env: &Env, address: &Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RelayNonce(address.clone()))
+            .unwrap_or(0)
+    }
+
+    pub fn set_relay_nonce(env: &Env, address: &Address, nonce: u32) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::RelayNonce(address.clone()), &nonce);
+    }
+
+    // ── Issue #567: Reviewer Pool Module ──────────────────────────────────────
+
+    pub fn get_reviewer_profile(env: &Env, reviewer: &Address) -> Option<ReviewerProfile> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReviewerProfile(reviewer.clone()))
+    }
+
+    pub fn set_reviewer_profile(env: &Env, profile: &ReviewerProfile) {
+        env.storage().persistent().set(
+            &DataKey::ReviewerProfile(profile.reviewer.clone()),
+            profile,
+        );
+    }
+
+    pub fn get_reviewer_request(env: &Env, grant_id: u64, reviewer: &Address) -> Option<ReviewerRequest> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReviewerRequest(grant_id, reviewer.clone()))
+    }
+
+    pub fn set_reviewer_request(env: &Env, request: &ReviewerRequest) {
+        env.storage().persistent().set(
+            &DataKey::ReviewerRequest(request.grant_id, request.reviewer.clone()),
+            request,
+        );
+    }
+
+    // ── Issue #571: Grant Tags Module ─────────────────────────────────────────
+
+    pub fn get_grant_tags(env: &Env, grant_id: u64) -> Option<GrantTag> {
+        env.storage().persistent().get(&DataKey::GrantTags(grant_id))
+    }
+
+    pub fn set_grant_tags(env: &Env, tags: &GrantTag) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::GrantTags(tags.grant_id), tags);
+    }
+
+    pub fn get_tag_index(env: &Env, tag_hash: u32) -> Vec<u64> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TagIndex(tag_hash))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_tag_index(env: &Env, tag_hash: u32, grant_ids: &Vec<u64>) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::TagIndex(tag_hash), grant_ids);
+    }
+
+    pub fn get_category_list(env: &Env) -> Vec<GrantCategory> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CategoryList)
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_category_list(env: &Env, categories: &Vec<GrantCategory>) {
+        env.storage().persistent().set(&DataKey::CategoryList, categories);
+    }
+
+    // ── Issue #577: Grant Renewal Module ──────────────────────────────────────
+
+    pub fn get_renewal_proposal(env: &Env, original_grant_id: u64) -> Option<RenewalProposal> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RenewalProposal(original_grant_id))
+    }
+
+    pub fn set_renewal_proposal(env: &Env, proposal: &RenewalProposal) {
+        env.storage().persistent().set(
+            &DataKey::RenewalProposal(proposal.original_grant_id),
+            proposal,
+        );
+    }
+
+    pub fn get_renewal_history(env: &Env, grant_id: u64) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RenewalHistory(grant_id))
+    }
+
+    pub fn set_renewal_history(env: &Env, grant_id: u64, original_grant_id: u64) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::RenewalHistory(grant_id), &original_grant_id);
     }
 }

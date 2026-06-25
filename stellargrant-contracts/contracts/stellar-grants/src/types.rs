@@ -540,3 +540,145 @@ pub struct ComplianceAttestation {
     pub expires_at: u64,
     pub jurisdiction: String,
 }
+
+// ── Issue #585: Fee Relayer for Gasless Contributor UX ──────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum RelayableAction {
+    ContributorRegister = 0,
+    MilestoneSubmit = 1,
+    ClaimVested = 2,
+    WithdrawStream = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelayConfig {
+    pub enabled: bool,
+    pub max_relays_per_address_per_day: u32,
+    pub relayer_address: Address,
+    pub reimbursement_per_relay: i128,
+    pub allowed_actions: Vec<RelayableAction>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelayAllowance {
+    pub address: Address,
+    pub daily_relays_used: u32,
+    pub window_start: u64,
+    pub total_relayed: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelayRecord {
+    pub sender: Address,
+    pub relayer: Address,
+    pub action: RelayableAction,
+    pub nonce: u32,
+    pub relayed_at: u64,
+    pub reimbursement_paid: i128,
+}
+
+// ── Issue #567: Decentralized Reviewer Recruitment Marketplace ──────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ReviewerAvailability {
+    Available = 0,
+    Busy = 1,
+    OnLeave = 2,
+    Inactive = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewerProfile {
+    pub reviewer: Address,
+    pub display_name: String,
+    pub expertise_tags: Vec<String>,
+    pub hourly_rate: Option<i128>,
+    pub reviews_completed: u32,
+    pub average_turnaround_ledgers: u32,
+    pub availability: ReviewerAvailability,
+    pub registered_at: u64,
+    pub reputation_score: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ReviewerRequestStatus {
+    Pending = 0,
+    Accepted = 1,
+    Declined = 2,
+    Expired = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewerRequest {
+    pub grant_id: u64,
+    pub reviewer: Address,
+    pub requested_by: Address,
+    pub message: String,
+    pub status: ReviewerRequestStatus,
+    pub requested_at: u64,
+    pub expires_at: u64,
+}
+
+// ── Issue #571: Taxonomy, Category, and Tag System for Grants ──────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantCategory {
+    pub id: u32,
+    pub name: String,
+    pub subcategories: Vec<String>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantTag {
+    pub grant_id: u64,
+    pub category_id: Option<u32>,
+    pub subcategory: Option<String>,
+    pub freeform_tags: Vec<String>,
+    pub tagged_by: Address,
+    pub tagged_at: u64,
+}
+
+// ── Issue #577: Automatic and Manual Grant Renewal ────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum RenewalStatus {
+    Proposed = 0,
+    ReviewerApproved = 1,
+    Active = 2,
+    Declined = 3,
+    Expired = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenewalProposal {
+    pub original_grant_id: u64,
+    pub proposed_by: Address,
+    pub new_title: String,
+    pub new_description: String,
+    pub new_total_amount: i128,
+    pub new_num_milestones: u32,
+    pub inherit_reviewers: bool,
+    pub inherit_contributor: bool,
+    pub status: RenewalStatus,
+    pub reviewer_votes: u32,
+    pub proposed_at: u64,
+    pub expires_at: u64,
+    pub new_grant_id: Option<u64>,
+}

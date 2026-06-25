@@ -11,6 +11,8 @@ mod escrow;
 mod events;
 mod fees;
 mod governance;
+mod grant_renewal;
+mod grant_tags;
 mod hooks;
 mod insurance;
 mod metrics;
@@ -21,6 +23,8 @@ mod quadratic;
 mod reentrancy;
 mod registry;
 mod reputation;
+mod relay;
+mod reviewer_pool;
 mod storage;
 mod streaming;
 mod types;
@@ -31,11 +35,14 @@ pub use storage::Storage;
 pub use types::{
     AuditAction, AuditEntry, ComplianceAttestation, ComplianceLevel, ComplianceStatus,
     ContractVersion, Dispute, DisputeStatus, EscrowAccount, EscrowLifecycleState, EscrowMode,
-    EscrowState, FeeRecord, FunderLedger, Grant, GrantFund, GrantStatus, HookCallResult, HookEvent,
-    HookRegistration, InsuranceClaim, InsurancePolicy, MigrationRecord, Milestone, MilestoneState,
-    MilestoneSubmission, MultisigProposal, MultisigSigner, OracleConfig, PauseRecord,
-    PaymentStream, PriceQuote, ProtocolConfig, ProtocolMetrics, QuadraticVoteRecord, RegistryEntry,
-    RegistryEntryType, ReputationTier, SignatureStatus, TokenMetric, VoiceCredits, VotingMechanism,
+    EscrowState, FeeRecord, FunderLedger, Grant, GrantCategory, GrantFund, GrantStatus, GrantTag,
+    HookCallResult, HookEvent, HookRegistration, InsuranceClaim, InsurancePolicy, MigrationRecord,
+    Milestone, MilestoneState, MilestoneSubmission, MultisigProposal, MultisigSigner, OracleConfig,
+    PauseRecord, PaymentStream, PriceQuote, ProtocolConfig, ProtocolMetrics, QuadraticVoteRecord,
+    RegistryEntry, RegistryEntryType, RelayableAction, RelayAllowance, RelayConfig, RelayRecord,
+    RenewalProposal, RenewalStatus, ReputationTier, ReviewerAvailability, ReviewerProfile,
+    ReviewerRequest, ReviewerRequestStatus, SignatureStatus, TokenMetric, VoiceCredits,
+    VotingMechanism,
 };
 
 use metrics::MetricField;
@@ -1523,6 +1530,239 @@ impl StellarGrantsContract {
         to_token: Address,
     ) -> Result<i128, ContractError> {
         oracle::convert_amount(&env, amount, &from_token, &to_token)
+    }
+
+    // ── Issue #585: Fee Relayer for Gasless Contributor UX ──────────────────
+
+    /// Configure the relay system. Admin only.
+    pub fn relay_set_config(
+        env: Env,
+        admin: Address,
+        config: RelayConfig,
+    ) -> Result<(), ContractError> {
+        relay::set_relay_config(&env, &admin, config)
+    }
+
+    /// Execute a relayed action on behalf of sender.
+    pub fn relay_execute(
+        env: Env,
+        relayer: Address,
+        sender: Address,
+        action: RelayableAction,
+        nonce: u32,
+        payload: Bytes,
+    ) -> Result<(), ContractError> {
+        relay::execute_relayed(&env, &relayer, &sender, action, nonce, payload)
+    }
+
+    /// Check if relay is allowed for an address and action.
+    pub fn relay_can_relay(env: Env, sender: Address, action: RelayableAction) -> bool {
+        relay::can_relay(&env, &sender, &action)
+    }
+
+    /// Reimburse the relayer from the treasury.
+    pub fn relay_reimburse(env: Env, relayer: Address) -> Result<(), ContractError> {
+        relay::reimburse_relayer(&env, &relayer)
+    }
+
+    /// Get relay allowance for an address.
+    pub fn relay_get_allowance(env: Env, address: Address) -> RelayAllowance {
+        relay::get_allowance(&env, &address)
+    }
+
+    /// Get current relay config.
+    pub fn relay_get_config(env: Env) -> Option<RelayConfig> {
+        relay::get_relay_config(&env)
+    }
+
+    // ── Issue #567: Decentralized Reviewer Recruitment Marketplace ──────────
+
+    /// Register as a reviewer.
+    pub fn reviewer_register(
+        env: Env,
+        reviewer: Address,
+        display_name: String,
+        expertise_tags: Vec<String>,
+        hourly_rate: Option<i128>,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::register_reviewer(&env, &reviewer, display_name, expertise_tags, hourly_rate)
+    }
+
+    /// Update reviewer availability status.
+    pub fn reviewer_set_availability(
+        env: Env,
+        reviewer: Address,
+        availability: ReviewerAvailability,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::set_availability(&env, &reviewer, availability)
+    }
+
+    /// Request a reviewer for a grant.
+    pub fn reviewer_request(
+        env: Env,
+        owner: Address,
+        grant_id: u64,
+        reviewer: Address,
+        message: String,
+        ttl_ledgers: u32,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::request_reviewer(&env, &owner, grant_id, &reviewer, message, ttl_ledgers)
+    }
+
+    /// Accept a reviewer request.
+    pub fn reviewer_accept_request(
+        env: Env,
+        reviewer: Address,
+        grant_id: u64,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::accept_request(&env, &reviewer, grant_id)
+    }
+
+    /// Decline a reviewer request.
+    pub fn reviewer_decline_request(
+        env: Env,
+        reviewer: Address,
+        grant_id: u64,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::decline_request(&env, &reviewer, grant_id)
+    }
+
+    /// Get reviewer profile.
+    pub fn reviewer_get_profile(env: Env, reviewer: Address) -> Option<ReviewerProfile> {
+        reviewer_pool::get_profile(&env, &reviewer)
+    }
+
+    /// Get reviewer request.
+    pub fn reviewer_get_request(
+        env: Env,
+        grant_id: u64,
+        reviewer: Address,
+    ) -> Option<ReviewerRequest> {
+        reviewer_pool::get_request(&env, grant_id, &reviewer)
+    }
+
+    // ── Issue #571: Taxonomy, Category, and Tag System for Grants ──────────
+
+    /// Create a new category.
+    pub fn tags_create_category(
+        env: Env,
+        admin: Address,
+        name: String,
+        subcategories: Vec<String>,
+    ) -> Result<u32, ContractError> {
+        grant_tags::create_category(&env, &admin, name, subcategories)
+    }
+
+    /// Tag a grant.
+    pub fn tags_tag_grant(
+        env: Env,
+        owner: Address,
+        grant_id: u64,
+        category_id: Option<u32>,
+        subcategory: Option<String>,
+        freeform_tags: Vec<String>,
+    ) -> Result<(), ContractError> {
+        grant_tags::tag_grant(
+            &env,
+            &owner,
+            grant_id,
+            category_id,
+            subcategory,
+            freeform_tags,
+        )
+    }
+
+    /// Update tags on a grant.
+    pub fn tags_update_tags(
+        env: Env,
+        owner: Address,
+        grant_id: u64,
+        freeform_tags: Vec<String>,
+    ) -> Result<(), ContractError> {
+        grant_tags::update_tags(&env, &owner, grant_id, freeform_tags)
+    }
+
+    /// Get tags for a grant.
+    pub fn tags_get_tags(env: Env, grant_id: u64) -> Option<GrantTag> {
+        grant_tags::get_tags(&env, grant_id)
+    }
+
+    /// Find grants by tag.
+    pub fn tags_find_by_tag(env: Env, tag: String, offset: u32, limit: u32) -> Vec<u64> {
+        grant_tags::find_by_tag(&env, &tag, offset, limit)
+    }
+
+    /// Find grants by category.
+    pub fn tags_find_by_category(env: Env, category_id: u32, offset: u32, limit: u32) -> Vec<u64> {
+        grant_tags::find_by_category(&env, category_id, offset, limit)
+    }
+
+    /// List all categories.
+    pub fn tags_list_categories(env: Env) -> Vec<GrantCategory> {
+        grant_tags::list_categories(&env)
+    }
+
+    /// Remove a tag from a grant.
+    pub fn tags_remove_tag(env: Env, owner: Address, grant_id: u64, tag: String) -> Result<(), ContractError> {
+        grant_tags::remove_tag(&env, &owner, grant_id, &tag)
+    }
+
+    // ── Issue #577: Automatic and Manual Grant Renewal ────────────────────
+
+    /// Propose renewal of a grant.
+    pub fn renewal_propose(
+        env: Env,
+        proposer: Address,
+        original_grant_id: u64,
+        new_title: String,
+        new_description: String,
+        new_total_amount: i128,
+        new_num_milestones: u32,
+        inherit_reviewers: bool,
+        inherit_contributor: bool,
+        ttl_ledgers: u32,
+    ) -> Result<(), ContractError> {
+        grant_renewal::propose_renewal(
+            &env,
+            &proposer,
+            original_grant_id,
+            new_title,
+            new_description,
+            new_total_amount,
+            new_num_milestones,
+            inherit_reviewers,
+            inherit_contributor,
+            ttl_ledgers,
+        )
+    }
+
+    /// Approve a renewal proposal.
+    pub fn renewal_approve(
+        env: Env,
+        reviewer: Address,
+        original_grant_id: u64,
+    ) -> Result<RenewalStatus, ContractError> {
+        grant_renewal::approve_renewal(&env, &reviewer, original_grant_id)
+    }
+
+    /// Activate an approved renewal.
+    pub fn renewal_activate(env: Env, owner: Address, original_grant_id: u64) -> Result<u64, ContractError> {
+        grant_renewal::activate_renewal(&env, &owner, original_grant_id)
+    }
+
+    /// Decline a renewal proposal.
+    pub fn renewal_decline(env: Env, caller: Address, original_grant_id: u64) -> Result<(), ContractError> {
+        grant_renewal::decline_renewal(&env, &caller, original_grant_id)
+    }
+
+    /// Get renewal proposal.
+    pub fn renewal_get_proposal(env: Env, original_grant_id: u64) -> Option<RenewalProposal> {
+        grant_renewal::get_proposal(&env, original_grant_id)
+    }
+
+    /// Get renewal chain.
+    pub fn renewal_chain(env: Env, original_grant_id: u64) -> Vec<u64> {
+        grant_renewal::renewal_chain(&env, original_grant_id)
     }
 
     // ── Private Helpers ───────────────────────────────────────────────────────
