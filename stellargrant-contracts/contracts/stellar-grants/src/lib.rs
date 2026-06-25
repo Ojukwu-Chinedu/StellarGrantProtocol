@@ -13,6 +13,8 @@ mod escrow;
 mod events;
 mod fees;
 mod governance;
+mod grant_renewal;
+mod grant_tags;
 mod hooks;
 mod insurance;
 mod metrics;
@@ -24,6 +26,8 @@ mod quadratic;
 mod reentrancy;
 mod registry;
 mod reputation;
+mod relay;
+mod reviewer_pool;
 mod storage;
 mod streaming;
 mod treasury;
@@ -33,15 +37,16 @@ pub use errors::ContractError;
 pub use events::Events;
 pub use storage::Storage;
 pub use types::{
-    AuditAction, AuditEntry, BountyGrant, BountyStatus, BountySubmission, ComplianceAttestation,
-    ComplianceLevel, ComplianceStatus, ContractVersion, DaoProposal, DaoProposalStatus,
-    DaoProposalType, DaoVote, Dispute, DisputeStatus, EscrowAccount, EscrowLifecycleState,
-    EscrowMode, EscrowState, FeeRecord, FunderLedger, Grant, GrantFund, GrantStatus,
+    AuditAction, AuditEntry, ComplianceAttestation, ComplianceLevel, ComplianceStatus,
+    ContractVersion, Dispute, DisputeStatus, EscrowAccount, EscrowLifecycleState, EscrowMode,
+    EscrowState, FeeRecord, FunderLedger, Grant, GrantCategory, GrantFund, GrantStatus, GrantTag,
     HookCallResult, HookEvent, HookRegistration, InsuranceClaim, InsurancePolicy, MigrationRecord,
     Milestone, MilestoneState, MilestoneSubmission, MultisigProposal, MultisigSigner, OracleConfig,
     PauseRecord, PaymentStream, PriceQuote, ProtocolConfig, ProtocolMetrics, QuadraticVoteRecord,
-    RegistryEntry, RegistryEntryType, ReputationTier, SignatureStatus, TokenMetric,
-    TreasurySnapshot, VoiceCredits, VotingMechanism,
+    RegistryEntry, RegistryEntryType, RelayableAction, RelayAllowance, RelayConfig, RelayRecord,
+    RenewalProposal, RenewalStatus, ReputationTier, ReviewerAvailability, ReviewerProfile,
+    ReviewerRequest, ReviewerRequestStatus, SignatureStatus, TokenMetric, VoiceCredits,
+    VotingMechanism,
 };
 
 use metrics::MetricField;
@@ -1552,227 +1557,237 @@ impl StellarGrantsContract {
         oracle::convert_amount(&env, amount, &from_token, &to_token)
     }
 
-    // ── Issue #519: Protocol Treasury Management Entry Points ────────────────
+    // ── Issue #585: Fee Relayer for Gasless Contributor UX ──────────────────
 
-    /// Configure the treasury management address. Admin only.
-    pub fn set_treasury_address(
+    /// Configure the relay system. Admin only.
+    pub fn relay_set_config(
         env: Env,
         admin: Address,
-        treasury: Address,
+        config: RelayConfig,
     ) -> Result<(), ContractError> {
-        admin.require_auth();
-        treasury::set_treasury_address(&env, &admin, &treasury)
+        relay::set_relay_config(&env, &admin, config)
     }
 
-    /// Record protocol fees / unclaimed funds into the treasury for `token`.
-    pub fn treasury_deposit(
+    /// Execute a relayed action on behalf of sender.
+    pub fn relay_execute(
         env: Env,
-        caller: Address,
-        token: Address,
-        amount: i128,
-    ) -> Result<i128, ContractError> {
-        caller.require_auth();
-        treasury::deposit(&env, &token, &caller, amount)
-    }
-
-    /// Withdraw `amount` of `token` from the treasury to `to`. Admin only.
-    pub fn treasury_withdraw(
-        env: Env,
-        admin: Address,
-        token: Address,
-        to: Address,
-        amount: i128,
-    ) -> Result<i128, ContractError> {
-        admin.require_auth();
-        treasury::withdraw(&env, &admin, &token, &to, amount)
-    }
-
-    /// Reallocate treasury accounting from one token balance to another. Admin only.
-    pub fn treasury_reallocate(
-        env: Env,
-        admin: Address,
-        from_token: Address,
-        to_token: Address,
-        amount: i128,
+        relayer: Address,
+        sender: Address,
+        action: RelayableAction,
+        nonce: u32,
+        payload: Bytes,
     ) -> Result<(), ContractError> {
-        admin.require_auth();
-        treasury::reallocate(&env, &admin, &from_token, &to_token, amount)
+        relay::execute_relayed(&env, &relayer, &sender, action, nonce, payload)
     }
 
-    /// Current treasury balance for `token`.
-    pub fn treasury_balance(env: Env, token: Address) -> i128 {
-        treasury::balance(&env, &token)
+    /// Check if relay is allowed for an address and action.
+    pub fn relay_can_relay(env: Env, sender: Address, action: RelayableAction) -> bool {
+        relay::can_relay(&env, &sender, &action)
     }
 
-    /// Point-in-time treasury health snapshot for `token`, for frontend display.
-    pub fn treasury_snapshot(env: Env, token: Address) -> TreasurySnapshot {
-        treasury::snapshot(&env, &token)
+    /// Reimburse the relayer from the treasury.
+    pub fn relay_reimburse(env: Env, relayer: Address) -> Result<(), ContractError> {
+        relay::reimburse_relayer(&env, &relayer)
     }
 
-    // ── Issue #532: Protocol-Wide DAO Governance Entry Points ────────────────
-
-    /// Enable or disable DAO governance mode. Admin only. Once enabled,
-    /// `update_config` and `set_global_admin` are locked out in favor of
-    /// passed-and-executed DAO proposals.
-    pub fn set_dao_mode(env: Env, admin: Address, enabled: bool) -> Result<(), ContractError> {
-        admin.require_auth();
-        dao::set_dao_mode(&env, &admin, enabled)
+    /// Get relay allowance for an address.
+    pub fn relay_get_allowance(env: Env, address: Address) -> RelayAllowance {
+        relay::get_allowance(&env, &address)
     }
 
-    pub fn is_dao_mode_enabled(env: Env) -> bool {
-        dao::is_dao_mode_enabled(&env)
+    /// Get current relay config.
+    pub fn relay_get_config(env: Env) -> Option<RelayConfig> {
+        relay::get_relay_config(&env)
     }
 
-    /// Configure the voting period (in ledgers) for newly created proposals. Admin only.
-    pub fn dao_set_voting_period(
+    // ── Issue #567: Decentralized Reviewer Recruitment Marketplace ──────────
+
+    /// Register as a reviewer.
+    pub fn reviewer_register(
         env: Env,
-        admin: Address,
-        ledgers: u32,
+        reviewer: Address,
+        display_name: String,
+        expertise_tags: Vec<String>,
+        hourly_rate: Option<i128>,
     ) -> Result<(), ContractError> {
-        admin.require_auth();
-        dao::set_voting_period(&env, &admin, ledgers)
+        reviewer_pool::register_reviewer(&env, &reviewer, display_name, expertise_tags, hourly_rate)
     }
 
-    /// Configure the minimum total vote weight required to finalize a proposal. Admin only.
-    pub fn dao_set_quorum_votes(env: Env, admin: Address, quorum: u64) -> Result<(), ContractError> {
-        admin.require_auth();
-        dao::set_quorum_votes(&env, &admin, quorum)
-    }
-
-    /// Submit a new governance proposal.
-    pub fn dao_propose(
+    /// Update reviewer availability status.
+    pub fn reviewer_set_availability(
         env: Env,
-        proposer: Address,
-        title: String,
-        description: String,
-        proposal_type: DaoProposalType,
-    ) -> Result<u64, ContractError> {
-        proposer.require_auth();
-        dao::create_proposal(&env, &proposer, title, description, proposal_type)
-    }
-
-    /// Cast a reputation-weighted vote on an active proposal.
-    pub fn dao_vote(
-        env: Env,
-        voter: Address,
-        proposal_id: u64,
-        support: bool,
-    ) -> Result<DaoProposal, ContractError> {
-        voter.require_auth();
-        dao::vote(&env, &voter, proposal_id, support)
-    }
-
-    /// Finalize a proposal once its voting deadline has passed.
-    pub fn dao_finalize(env: Env, proposal_id: u64) -> Result<DaoProposalStatus, ContractError> {
-        dao::finalize(&env, proposal_id)
-    }
-
-    /// Execute a passed proposal's on-chain effect.
-    pub fn dao_execute(
-        env: Env,
-        executor: Address,
-        proposal_id: u64,
+        reviewer: Address,
+        availability: ReviewerAvailability,
     ) -> Result<(), ContractError> {
-        executor.require_auth();
-        dao::execute(&env, &executor, proposal_id)
+        reviewer_pool::set_availability(&env, &reviewer, availability)
     }
 
-    /// Cancel an active proposal. Proposer or admin only.
-    pub fn dao_cancel(env: Env, caller: Address, proposal_id: u64) -> Result<(), ContractError> {
-        caller.require_auth();
-        dao::cancel(&env, &caller, proposal_id)
-    }
-
-    /// Fetch a DAO proposal by ID.
-    pub fn get_dao_proposal(env: Env, proposal_id: u64) -> Option<DaoProposal> {
-        dao::get_proposal(&env, proposal_id)
-    }
-
-    // ── Issue #533: Competitive Bounty-Mode Grants Entry Points ──────────────
-
-    /// Publish a new bounty-mode grant. The owner deposits the full prize
-    /// up front; it is escrowed until a winner is selected or it is cancelled.
-    #[allow(clippy::too_many_arguments)]
-    pub fn bounty_create(
+    /// Request a reviewer for a grant.
+    pub fn reviewer_request(
         env: Env,
         owner: Address,
-        title: String,
-        description: String,
-        token: Address,
-        prize_amount: i128,
-        submission_window_ledgers: u32,
-    ) -> Result<u64, ContractError> {
-        owner.require_auth();
-        emergency::require_not_paused(&env)?;
-        let id = bounty::create_bounty(
+        grant_id: u64,
+        reviewer: Address,
+        message: String,
+        ttl_ledgers: u32,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::request_reviewer(&env, &owner, grant_id, &reviewer, message, ttl_ledgers)
+    }
+
+    /// Accept a reviewer request.
+    pub fn reviewer_accept_request(
+        env: Env,
+        reviewer: Address,
+        grant_id: u64,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::accept_request(&env, &reviewer, grant_id)
+    }
+
+    /// Decline a reviewer request.
+    pub fn reviewer_decline_request(
+        env: Env,
+        reviewer: Address,
+        grant_id: u64,
+    ) -> Result<(), ContractError> {
+        reviewer_pool::decline_request(&env, &reviewer, grant_id)
+    }
+
+    /// Get reviewer profile.
+    pub fn reviewer_get_profile(env: Env, reviewer: Address) -> Option<ReviewerProfile> {
+        reviewer_pool::get_profile(&env, &reviewer)
+    }
+
+    /// Get reviewer request.
+    pub fn reviewer_get_request(
+        env: Env,
+        grant_id: u64,
+        reviewer: Address,
+    ) -> Option<ReviewerRequest> {
+        reviewer_pool::get_request(&env, grant_id, &reviewer)
+    }
+
+    // ── Issue #571: Taxonomy, Category, and Tag System for Grants ──────────
+
+    /// Create a new category.
+    pub fn tags_create_category(
+        env: Env,
+        admin: Address,
+        name: String,
+        subcategories: Vec<String>,
+    ) -> Result<u32, ContractError> {
+        grant_tags::create_category(&env, &admin, name, subcategories)
+    }
+
+    /// Tag a grant.
+    pub fn tags_tag_grant(
+        env: Env,
+        owner: Address,
+        grant_id: u64,
+        category_id: Option<u32>,
+        subcategory: Option<String>,
+        freeform_tags: Vec<String>,
+    ) -> Result<(), ContractError> {
+        grant_tags::tag_grant(
             &env,
             &owner,
-            title,
-            description,
-            &token,
-            prize_amount,
-            submission_window_ledgers,
-        )?;
-        metrics::increment(&env, MetricField::BountiesCreated, 1);
-        Ok(id)
+            grant_id,
+            category_id,
+            subcategory,
+            freeform_tags,
+        )
     }
 
-    /// Submit a solution to an open bounty. One submission per contributor.
-    pub fn bounty_submit(
+    /// Update tags on a grant.
+    pub fn tags_update_tags(
         env: Env,
-        submitter: Address,
-        bounty_id: u64,
-        proof_url: String,
+        owner: Address,
+        grant_id: u64,
+        freeform_tags: Vec<String>,
     ) -> Result<(), ContractError> {
-        submitter.require_auth();
-        bounty::submit_solution(&env, bounty_id, &submitter, proof_url)
+        grant_tags::update_tags(&env, &owner, grant_id, freeform_tags)
     }
 
-    /// Close a bounty to new submissions while the owner reviews entries. Owner only.
-    pub fn bounty_start_review(env: Env, caller: Address, bounty_id: u64) -> Result<(), ContractError> {
-        caller.require_auth();
-        bounty::start_review(&env, &caller, bounty_id)
+    /// Get tags for a grant.
+    pub fn tags_get_tags(env: Env, grant_id: u64) -> Option<GrantTag> {
+        grant_tags::get_tags(&env, grant_id)
     }
 
-    /// Select the winning submission and pay out the full prize. Owner only.
-    pub fn bounty_select_winner(
+    /// Find grants by tag.
+    pub fn tags_find_by_tag(env: Env, tag: String, offset: u32, limit: u32) -> Vec<u64> {
+        grant_tags::find_by_tag(&env, &tag, offset, limit)
+    }
+
+    /// Find grants by category.
+    pub fn tags_find_by_category(env: Env, category_id: u32, offset: u32, limit: u32) -> Vec<u64> {
+        grant_tags::find_by_category(&env, category_id, offset, limit)
+    }
+
+    /// List all categories.
+    pub fn tags_list_categories(env: Env) -> Vec<GrantCategory> {
+        grant_tags::list_categories(&env)
+    }
+
+    /// Remove a tag from a grant.
+    pub fn tags_remove_tag(env: Env, owner: Address, grant_id: u64, tag: String) -> Result<(), ContractError> {
+        grant_tags::remove_tag(&env, &owner, grant_id, &tag)
+    }
+
+    // ── Issue #577: Automatic and Manual Grant Renewal ────────────────────
+
+    /// Propose renewal of a grant.
+    pub fn renewal_propose(
         env: Env,
-        caller: Address,
-        bounty_id: u64,
-        winner: Address,
+        proposer: Address,
+        original_grant_id: u64,
+        new_title: String,
+        new_description: String,
+        new_total_amount: i128,
+        new_num_milestones: u32,
+        inherit_reviewers: bool,
+        inherit_contributor: bool,
+        ttl_ledgers: u32,
     ) -> Result<(), ContractError> {
-        caller.require_auth();
-        bounty::select_winner(&env, &caller, bounty_id, &winner)?;
-        metrics::increment(&env, MetricField::BountiesAwarded, 1);
-        if hooks::has_hooks(&env, HookEvent::BountyAwarded) {
-            hooks::trigger(&env, HookEvent::BountyAwarded, Bytes::new(&env));
-        }
-        Ok(())
+        grant_renewal::propose_renewal(
+            &env,
+            &proposer,
+            original_grant_id,
+            new_title,
+            new_description,
+            new_total_amount,
+            new_num_milestones,
+            inherit_reviewers,
+            inherit_contributor,
+            ttl_ledgers,
+        )
     }
 
-    /// Cancel an unresolved bounty and refund the prize to the owner.
-    pub fn bounty_cancel(env: Env, caller: Address, bounty_id: u64) -> Result<(), ContractError> {
-        caller.require_auth();
-        bounty::cancel_bounty(&env, &caller, bounty_id)
-    }
-
-    /// Fetch a bounty-mode grant by ID.
-    pub fn get_bounty(env: Env, bounty_id: u64) -> Option<BountyGrant> {
-        bounty::get_bounty(&env, bounty_id)
-    }
-
-    /// Fetch a specific contributor's submission for a bounty.
-    pub fn get_bounty_submission(
+    /// Approve a renewal proposal.
+    pub fn renewal_approve(
         env: Env,
-        bounty_id: u64,
-        submitter: Address,
-    ) -> Option<BountySubmission> {
-        bounty::get_submission(&env, bounty_id, &submitter)
+        reviewer: Address,
+        original_grant_id: u64,
+    ) -> Result<RenewalStatus, ContractError> {
+        grant_renewal::approve_renewal(&env, &reviewer, original_grant_id)
     }
 
-    /// List all addresses that submitted a solution to a bounty.
-    pub fn get_bounty_submitters(env: Env, bounty_id: u64) -> Vec<Address> {
-        bounty::list_submitters(&env, bounty_id)
+    /// Activate an approved renewal.
+    pub fn renewal_activate(env: Env, owner: Address, original_grant_id: u64) -> Result<u64, ContractError> {
+        grant_renewal::activate_renewal(&env, &owner, original_grant_id)
+    }
+
+    /// Decline a renewal proposal.
+    pub fn renewal_decline(env: Env, caller: Address, original_grant_id: u64) -> Result<(), ContractError> {
+        grant_renewal::decline_renewal(&env, &caller, original_grant_id)
+    }
+
+    /// Get renewal proposal.
+    pub fn renewal_get_proposal(env: Env, original_grant_id: u64) -> Option<RenewalProposal> {
+        grant_renewal::get_proposal(&env, original_grant_id)
+    }
+
+    /// Get renewal chain.
+    pub fn renewal_chain(env: Env, original_grant_id: u64) -> Vec<u64> {
+        grant_renewal::renewal_chain(&env, original_grant_id)
     }
 
     // ── Private Helpers ───────────────────────────────────────────────────────
