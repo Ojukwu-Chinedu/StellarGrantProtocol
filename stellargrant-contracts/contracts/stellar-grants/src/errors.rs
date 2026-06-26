@@ -120,4 +120,32 @@ pub enum ContractError {
     NftNotFound = 95,
     NftNotTransferable = 96,
     NotNftOwner = 97,
+    // Referral system (#569)
+    ReferralCodeNotFound = 98,
+    ReferralCodeInactive = 99,
+    ReferralCodeExpired = 100,
+    ReferralCodeExhausted = 101,
+    AlreadyReferred = 102,
+    ReferralRecordNotFound = 103,
+    NoRewardsToClaim = 104,
+    // Deadline extension (#572)
+    ExtensionRequestNotFound = 105,
+    ExtensionAlreadyResolved = 106,
+    NoDeadlineSet = 107,
+    // Arbitration pool (#573)
+    ArbiterNotFound = 108,
+    ArbiterAlreadyJoined = 109,
+    ArbiterInActiveCase = 110,
+    ArbitrationCaseNotFound = 111,
+    CaseAlreadyFinalized = 112,
+    CaseNotFinalized = 113,
+    NotPanelMember = 114,
+    VotingDeadlinePassed = 115,
+    InsufficientArbiters = 116,
+    // Performance bond (#574)
+    BondNotFound = 117,
+    BondAlreadyPosted = 118,
+    BondNotPosted = 119,
+    BondNotActive = 120,
+    BondExpired = 121,
 }

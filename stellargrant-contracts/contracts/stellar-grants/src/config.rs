@@ -15,6 +15,7 @@ pub fn default_config() -> ProtocolConfig {
         max_grant_desc_len: 1024,
         multisig_threshold: 0,
         rate_limit_multiplier: 1,
+        referral_fee_bps: 1000,
     }
 }
 
@@ -27,6 +28,9 @@ pub fn validate_config(config: &ProtocolConfig) -> Result<(), ContractError> {
         return Err(ContractError::InvalidInput);
     }
     if config.protocol_fee_bps > 1000 {
+        return Err(ContractError::InvalidInput);
+    }
+    if config.referral_fee_bps > 10_000 {
         return Err(ContractError::InvalidInput);
     }
     if config.max_reviewers < 1 {

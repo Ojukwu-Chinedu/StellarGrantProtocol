@@ -74,6 +74,7 @@ mod tests {
                 status_updated_at: 0,
                 proof_url: Some(String::from_str(env, "https://proof.url")),
                 submission_timestamp: env.ledger().timestamp(),
+                deadline: None,
             };
             Storage::set_milestone(env, grant_id, milestone_idx, &milestone);
         });

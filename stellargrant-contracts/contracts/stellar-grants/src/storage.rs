@@ -9,7 +9,11 @@ use crate::types::{
     ReviewerProfile, ReviewerRequest, Role, RoleAssignment, RollingWindow, ScoringRubric, StructuredEvidence, SyndicateGrant,
     SyndicateMember, TokenMetric, TransferProposal, VoiceCredits, VotingMechanism,
 };
-use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
+use crate::types::{
+    Arbiter, ArbiterVote, ArbitrationCase, BondClaim, ExtensionRequest, PerformanceBond,
+    ReferralCode, ReferralRecord,
+};
+use soroban_sdk::{contracttype, Address, Bytes, Env, Symbol, Vec};
 
 #[contracttype]
 pub enum DataKey {
@@ -152,6 +156,28 @@ pub enum DataKey {
     NftTokenIndex(u32),
     // Issue #565: contributor portfolio grant index
     ContributorGrantIds(Address),
+    // Issue #569: referral system
+    ReferralCode(Bytes),
+    ReferralRecord(Address),
+    ReferralRewards(Address, Address), // (referrer, token) -> pending amount
+    // Issue #572: deadline extension requests
+    ExtensionRequest(u64, u32),
+    ExtensionHistory(u64),
+    // Issue #573: community arbitration pool
+    ArbiterPool,
+    ArbiterPoolToken,
+    Arbiter(Address),
+    ArbiterActiveCases(Address),
+    ArbitrationCase(u32),
+    ArbitrationCaseByDispute(u32),
+    ArbitrationCaseCounter,
+    ArbitrationSettled(u32),
+    ArbiterVote(u32, Address),
+    // Issue #574: performance bonds
+    PerformanceBond(u64),
+    BondGrant(u32),
+    BondClaim(u32),
+    BondCounter,
 }
 
 const PERSISTENT_TTL_THRESHOLD: u32 = 100_000;
@@ -1574,5 +1600,241 @@ impl Storage {
             env.storage().persistent().set(&key, &ids);
             Self::bump_persistent_ttl(env, &key);
         }
+    }
+
+    // ── Issue #569: Referral System ──────────────────────────────────────────
+
+    pub fn get_referral_code(env: &Env, code_hash: &Bytes) -> Option<ReferralCode> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReferralCode(code_hash.clone()))
+    }
+
+    pub fn set_referral_code(env: &Env, code: &ReferralCode) {
+        let key = DataKey::ReferralCode(code.code_hash.clone());
+        env.storage().persistent().set(&key, code);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_referral_record(env: &Env, referred: &Address) -> Option<ReferralRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReferralRecord(referred.clone()))
+    }
+
+    pub fn set_referral_record(env: &Env, record: &ReferralRecord) {
+        let key = DataKey::ReferralRecord(record.referred.clone());
+        env.storage().persistent().set(&key, record);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_referral_rewards(env: &Env, referrer: &Address, token: &Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReferralRewards(referrer.clone(), token.clone()))
+            .unwrap_or(0)
+    }
+
+    pub fn set_referral_rewards(env: &Env, referrer: &Address, token: &Address, amount: i128) {
+        let key = DataKey::ReferralRewards(referrer.clone(), token.clone());
+        env.storage().persistent().set(&key, &amount);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #572: Deadline Extension Requests ──────────────────────────────
+
+    pub fn get_extension_request(
+        env: &Env,
+        grant_id: u64,
+        milestone_idx: u32,
+    ) -> Option<ExtensionRequest> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ExtensionRequest(grant_id, milestone_idx))
+    }
+
+    pub fn set_extension_request(env: &Env, req: &ExtensionRequest) {
+        let key = DataKey::ExtensionRequest(req.grant_id, req.milestone_idx);
+        env.storage().persistent().set(&key, req);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn remove_extension_request(env: &Env, grant_id: u64, milestone_idx: u32) {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::ExtensionRequest(grant_id, milestone_idx));
+    }
+
+    pub fn get_extension_history(env: &Env, grant_id: u64) -> Vec<ExtensionRequest> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ExtensionHistory(grant_id))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn push_extension_history(env: &Env, req: &ExtensionRequest) {
+        let key = DataKey::ExtensionHistory(req.grant_id);
+        let mut history = Self::get_extension_history(env, req.grant_id);
+        history.push_back(req.clone());
+        env.storage().persistent().set(&key, &history);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #573: Community Arbitration Pool ───────────────────────────────
+
+    pub fn get_arbiter_pool(env: &Env) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArbiterPool)
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_arbiter_pool(env: &Env, pool: &Vec<Address>) {
+        env.storage().persistent().set(&DataKey::ArbiterPool, pool);
+        Self::bump_persistent_ttl(env, &DataKey::ArbiterPool);
+    }
+
+    pub fn get_arbiter(env: &Env, address: &Address) -> Option<Arbiter> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Arbiter(address.clone()))
+    }
+
+    pub fn set_arbiter(env: &Env, arbiter: &Arbiter) {
+        let key = DataKey::Arbiter(arbiter.address.clone());
+        env.storage().persistent().set(&key, arbiter);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_arbiter_pool_token(env: &Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::ArbiterPoolToken)
+    }
+
+    pub fn set_arbiter_pool_token(env: &Env, token: &Address) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbiterPoolToken, token);
+    }
+
+    pub fn get_arbiter_active_cases(env: &Env, arbiter: &Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArbiterActiveCases(arbiter.clone()))
+            .unwrap_or(0)
+    }
+
+    pub fn set_arbiter_active_cases(env: &Env, arbiter: &Address, count: u32) {
+        let key = DataKey::ArbiterActiveCases(arbiter.clone());
+        env.storage().persistent().set(&key, &count);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn next_arbitration_case_id(env: &Env) -> u32 {
+        let mut id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArbitrationCaseCounter)
+            .unwrap_or(0);
+        id += 1;
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbitrationCaseCounter, &id);
+        id
+    }
+
+    pub fn get_arbitration_case(env: &Env, case_id: u32) -> Option<ArbitrationCase> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArbitrationCase(case_id))
+    }
+
+    pub fn set_arbitration_case(env: &Env, case: &ArbitrationCase) {
+        let key = DataKey::ArbitrationCase(case.id);
+        env.storage().persistent().set(&key, case);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_case_id_by_dispute(env: &Env, dispute_id: u32) -> Option<u32> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArbitrationCaseByDispute(dispute_id))
+    }
+
+    pub fn set_case_id_by_dispute(env: &Env, dispute_id: u32, case_id: u32) {
+        let key = DataKey::ArbitrationCaseByDispute(dispute_id);
+        env.storage().persistent().set(&key, &case_id);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn is_arbitration_settled(env: &Env, case_id: u32) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArbitrationSettled(case_id))
+            .unwrap_or(false)
+    }
+
+    pub fn set_arbitration_settled(env: &Env, case_id: u32) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ArbitrationSettled(case_id), &true);
+    }
+
+    pub fn get_arbiter_vote(env: &Env, case_id: u32, arbiter: &Address) -> Option<ArbiterVote> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ArbiterVote(case_id, arbiter.clone()))
+    }
+
+    pub fn set_arbiter_vote(env: &Env, case_id: u32, vote: &ArbiterVote) {
+        let key = DataKey::ArbiterVote(case_id, vote.arbiter.clone());
+        env.storage().persistent().set(&key, vote);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #574: Performance Bonds ────────────────────────────────────────
+
+    pub fn get_performance_bond(env: &Env, grant_id: u64) -> Option<PerformanceBond> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::PerformanceBond(grant_id))
+    }
+
+    pub fn set_performance_bond(env: &Env, bond: &PerformanceBond) {
+        let key = DataKey::PerformanceBond(bond.grant_id);
+        env.storage().persistent().set(&key, bond);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn next_bond_id(env: &Env) -> u32 {
+        let mut id: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BondCounter)
+            .unwrap_or(0);
+        id += 1;
+        env.storage().persistent().set(&DataKey::BondCounter, &id);
+        id
+    }
+
+    pub fn get_bond_grant(env: &Env, bond_id: u32) -> Option<u64> {
+        env.storage().persistent().get(&DataKey::BondGrant(bond_id))
+    }
+
+    pub fn set_bond_grant(env: &Env, bond_id: u32, grant_id: u64) {
+        let key = DataKey::BondGrant(bond_id);
+        env.storage().persistent().set(&key, &grant_id);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_bond_claim(env: &Env, bond_id: u32) -> Option<BondClaim> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::BondClaim(bond_id))
+    }
+
+    pub fn set_bond_claim(env: &Env, claim: &BondClaim) {
+        let key = DataKey::BondClaim(claim.bond_id);
+        env.storage().persistent().set(&key, claim);
+        Self::bump_persistent_ttl(env, &key);
     }
 }

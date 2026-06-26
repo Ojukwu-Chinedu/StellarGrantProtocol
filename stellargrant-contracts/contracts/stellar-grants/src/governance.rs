@@ -237,6 +237,7 @@ mod tests {
             status_updated_at: 0,
             proof_url: None,
             submission_timestamp: 0,
+            deadline: None,
         };
         let result = VoteResult {
             approved: true,
@@ -262,6 +263,7 @@ mod tests {
             status_updated_at: 0,
             proof_url: None,
             submission_timestamp: 0,
+            deadline: None,
         };
         let result = VoteResult {
             approved: false,

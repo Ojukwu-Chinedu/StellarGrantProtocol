@@ -65,6 +65,8 @@ pub struct Milestone {
     pub status_updated_at: u64,
     pub proof_url: Option<String>,
     pub submission_timestamp: u64,
+    /// Optional milestone deadline (ledger timestamp). Updated by approved extensions (#572).
+    pub deadline: Option<u64>,
 }
 
 #[contracttype]
@@ -389,6 +391,8 @@ pub struct ProtocolConfig {
     pub multisig_threshold: i128,
     /// Multiplier applied to all default per-action rate limits (1 = use defaults).
     pub rate_limit_multiplier: u32,
+    /// Share of the protocol fee paid to referrers, in basis points (#569). Default 1000 = 10%.
+    pub referral_fee_bps: u32,
 }
 
 // ── Issue #517: Protocol Fee Collection ──────────────────────────────────────
@@ -1478,4 +1482,140 @@ pub struct CrowdfundPledge {
     pub amount: i128,
     pub pledged_at: u64,
     pub refunded: bool,
+}
+
+// ── Issue #569: Referral and Growth Incentive System ─────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReferralCode {
+    pub code_hash: Bytes, // SHA-256 of the plaintext code
+    pub referrer: Address,
+    pub created_at: u64,
+    pub expires_at: Option<u64>,
+    pub max_uses: Option<u32>,
+    pub uses: u32,
+    pub is_active: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReferralRecord {
+    pub referred: Address,
+    pub referrer: Address,
+    pub code_hash: Bytes,
+    pub referred_at: u64,
+    pub first_action_at: Option<u64>,
+    pub reward_paid: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReferralReward {
+    pub referrer: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub earned_at: u64,
+    pub for_action: String,
+}
+
+// ── Issue #572: Deadline Extension Request Workflow ──────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ExtensionStatus {
+    Pending = 0,
+    Approved = 1,
+    Denied = 2,
+    Withdrawn = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtensionRequest {
+    pub grant_id: u64,
+    pub milestone_idx: u32,
+    pub requested_by: Address,
+    pub original_deadline: u64,
+    pub new_deadline: u64,
+    pub reason: String,
+    pub status: ExtensionStatus,
+    pub votes_approve: u32,
+    pub votes_deny: u32,
+    pub reviewer_votes: Map<Address, bool>,
+    pub requested_at: u64,
+    pub resolved_at: Option<u64>,
+}
+
+// ── Issue #573: Community Arbitration Pool ───────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Arbiter {
+    pub address: Address,
+    pub stake: i128,
+    pub cases_decided: u32,
+    pub cases_correct: u32,
+    pub is_active: bool,
+    pub joined_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbiterVote {
+    pub arbiter: Address,
+    pub favor_contributor: bool,
+    pub confidence: u32, // 1-100, affects reward weight
+    pub voted_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArbitrationCase {
+    pub id: u32,
+    pub dispute_id: u32,
+    pub panel: Vec<Address>, // 3 or 5 randomly selected arbiters
+    pub votes: Vec<ArbiterVote>,
+    pub outcome: Option<bool>, // true = contributor wins, false = funder wins
+    pub finalized: bool,
+    pub assigned_at: u64,
+    pub deadline: u64,
+}
+
+// ── Issue #574: Surety Bonds for High-Value Grant Delivery ───────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum BondStatus {
+    Pending = 0,  // awaiting guarantor deposit
+    Active = 1,   // bond posted, grant in progress
+    Released = 2, // returned to guarantor on completion
+    Claimed = 3,  // paid out to funder after default
+    Expired = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PerformanceBond {
+    pub id: u32,
+    pub grant_id: u64,
+    pub principal: Address, // contributor
+    pub guarantor: Address, // bond backer
+    pub bond_amount: i128,
+    pub token: Address,
+    pub status: BondStatus,
+    pub posted_at: Option<u64>,
+    pub expires_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BondClaim {
+    pub bond_id: u32,
+    pub claimed_by: Address,
+    pub claim_reason: String,
+    pub payout_amount: i128,
+    pub claimed_at: u64,
 }
