@@ -6,6 +6,7 @@ mod arbitration_pool;
 mod audit;
 mod checklist;
 mod circuit_breaker;
+mod collateral;
 mod crowdfund;
 mod compliance;
 mod milestone_deps;
@@ -23,6 +24,7 @@ mod evidence_schema;
 mod events;
 mod factory;
 mod fees;
+mod funder_report;
 mod governance;
 mod grant_renewal;
 mod grant_tags;
@@ -57,6 +59,8 @@ mod syndication;
 mod token_swap;
 mod types;
 mod versioning;
+mod math;
+mod whitelist;
 
 pub use errors::ContractError;
 pub use events::Events;
@@ -84,6 +88,12 @@ pub use types::{
     // Issue #569/#572/#573/#574: growth, extension, arbitration, and bond modules
     Arbiter, ArbiterVote, ArbitrationCase, BondClaim, BondStatus, ExtensionRequest,
     ExtensionStatus, PerformanceBond, ReferralCode, ReferralRecord, ReferralReward,
+    // Issue #564: collateral escrow
+    CollateralDeposit, CollateralRequirement, CollateralStatus,
+    // Issue #598: funder report
+    FunderGrantSummary, FunderReport, FunderTokenSummary,
+    // Issue #512: whitelist
+    WhitelistEntry, WhitelistMode, WhitelistScope,
 };
 
 use metrics::MetricField;
@@ -274,6 +284,18 @@ impl StellarGrantsContract {
                 return Err(ContractError::InvalidState);
             }
 
+            // Issue #564: forfeit collateral on grant abandonment.
+            if let Some(req) = collateral::get_requirement(&env, grant_id) {
+                let forfeit_reason = String::from_str(&env, "grant cancelled by owner");
+                let _ = collateral::forfeit(
+                    &env,
+                    grant_id,
+                    &grant.owner,
+                    req.forfeit_on_abandon_bps,
+                    forfeit_reason,
+                );
+            }
+
             let total_refundable = grant.escrow_balance;
             if total_refundable > 0 {
                 escrow::refund_all(&env, grant_id)?;
@@ -417,7 +439,7 @@ impl StellarGrantsContract {
         if grant.escrow_balance < total_paid {
             return Err(ContractError::InvalidInput);
         }
-        let remaining_balance = grant.escrow_balance - total_paid;
+        let remaining_balance = math::safe_sub(grant.escrow_balance, total_paid)?;
 
         if total_paid > 0 {
             // Pay each milestone individually so that registered splits are honoured.
@@ -457,6 +479,9 @@ impl StellarGrantsContract {
 
         // Issue #574: return any active performance bond to the guarantor.
         performance_bond::release_bond(env, grant_id)?;
+
+        // Issue #564: release any collateral deposit back to the contributor.
+        let _ = collateral::release(env, grant_id, &grant.owner);
 
         Events::emit_grant_completed(env, grant_id, total_paid, remaining_balance);
         Ok(())
@@ -633,7 +658,10 @@ impl StellarGrantsContract {
         }
 
         // Issue #574: a required bond must be posted before any milestone submission.
-        require_bond_posted(&env, grant_id)?;
+        require_bond_posted(&env, grant_id)?;require_bond_posted(&env, grant_id)?;
+
+        // Issue #564: a required collateral deposit must be posted before submission.
+        collateral::require_deposited(&env, grant_id, &recipient)?;
 
         apply_milestone_submission(
             &env,
@@ -675,7 +703,10 @@ impl StellarGrantsContract {
         }
 
         // Issue #574: a required bond must be posted before any milestone submission.
-        require_bond_posted(&env, grant_id)?;
+        require_bond_posted(&env, grant_id)?;require_bond_posted(&env, grant_id)?;
+
+        // Issue #564: a required collateral deposit must be posted before submission.
+        collateral::require_deposited(&env, grant_id, &recipient)?;
 
         for sub in submissions.iter() {
             apply_milestone_submission(
@@ -1401,6 +1432,20 @@ impl StellarGrantsContract {
             .ok_or(ContractError::InvalidState)?;
         let outcome = dispute::resolve_dispute(&env, &mut grant, &mut d)?;
         Storage::set_grant(&env, grant_id, &grant);
+
+        // Issue #564: forfeit collateral when dispute resolution is against contributor.
+        if outcome == DisputeStatus::ResolvedForFunder {
+            if let Some(req) = collateral::get_requirement(&env, grant_id) {
+                let reason = String::from_str(&env, "dispute lost");
+                let _ = collateral::forfeit(
+                    &env,
+                    grant_id,
+                    &grant.owner,
+                    req.forfeit_on_dispute_loss_bps,
+                    reason,
+                );
+            }
+        }
         metrics::increment(&env, MetricField::DisputesResolved, 1);
         Ok(outcome)
     }
@@ -3014,6 +3059,157 @@ impl StellarGrantsContract {
     pub fn has_active_bond(env: Env, grant_id: u64) -> bool {
         performance_bond::has_active_bond(&env, grant_id)
     }
+
+    // ── Issue #564: Collateral Escrow Entry Points ───────────────────────────
+
+    /// Set collateral requirement for a grant. Owner only, before work starts.
+    pub fn collateral_set_requirement(
+        env: Env,
+        owner: Address,
+        grant_id: u64,
+        req: CollateralRequirement,
+    ) -> Result<(), ContractError> {
+        collateral::set_requirement(&env, &owner, grant_id, &req)
+    }
+
+    /// Contributor deposits required collateral to begin work.
+    pub fn collateral_deposit(
+        env: Env,
+        contributor: Address,
+        grant_id: u64,
+    ) -> Result<(), ContractError> {
+        collateral::deposit(&env, &contributor, grant_id)
+    }
+
+    /// Release collateral back to contributor on grant completion.
+    pub fn collateral_release(
+        env: Env,
+        grant_id: u64,
+        contributor: Address,
+    ) -> Result<i128, ContractError> {
+        collateral::release(&env, grant_id, &contributor)
+    }
+
+    /// Forfeit a portion of collateral (called by dispute or abandon logic).
+    pub fn collateral_forfeit(
+        env: Env,
+        grant_id: u64,
+        contributor: Address,
+        forfeit_bps: u32,
+        reason: String,
+    ) -> Result<i128, ContractError> {
+        collateral::forfeit(&env, grant_id, &contributor, forfeit_bps, reason)
+    }
+
+    /// Return collateral deposit for a contributor.
+    pub fn collateral_get_deposit(
+        env: Env,
+        grant_id: u64,
+        contributor: Address,
+    ) -> Option<CollateralDeposit> {
+        collateral::get_deposit(&env, grant_id, &contributor)
+    }
+
+    /// Return the collateral requirement for a grant.
+    pub fn collateral_get_requirement(
+        env: Env,
+        grant_id: u64,
+    ) -> Option<CollateralRequirement> {
+        collateral::get_requirement(&env, grant_id)
+    }
+
+    // ── Issue #598: Funder Report Entry Points ───────────────────────────────
+
+    /// Build a comprehensive financial report for a funder. Read-only.
+    pub fn get_funder_report(env: Env, funder: Address) -> Result<FunderReport, ContractError> {
+        funder_report::get_report(&env, &funder)
+    }
+
+    /// Return per-token financial summary for a funder.
+    pub fn funder_token_summary(
+        env: Env,
+        funder: Address,
+        token: Address,
+    ) -> FunderTokenSummary {
+        funder_report::token_summary(&env, &funder, &token)
+    }
+
+    /// Return summaries for all grants funded by an address.
+    pub fn funder_grant_summaries(
+        env: Env,
+        funder: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<FunderGrantSummary>, ContractError> {
+        funder_report::grant_summaries(&env, &funder, offset, limit)
+    }
+
+    /// Return total amount currently in escrow across all grants for a funder (per token).
+    pub fn funder_total_in_escrow(
+        env: Env,
+        funder: Address,
+        token: Address,
+    ) -> i128 {
+        funder_report::total_in_escrow(&env, &funder, &token)
+    }
+
+    /// Return a lightweight report suitable for a dashboard widget.
+    /// Returns: (grants_count, total_committed, total_in_escrow, total_paid_out)
+    pub fn funder_dashboard_summary(env: Env, funder: Address) -> (u32, i128, i128, i128) {
+        funder_report::dashboard_summary(&env, &funder)
+    }
+
+    // ── Issue #512: Whitelist Entry Points ────────────────────────────────────
+
+    /// Add an address to a whitelist scope. Admin or grant owner only.
+    pub fn whitelist_add(
+        env: Env,
+        caller: Address,
+        address: Address,
+        scope: WhitelistScope,
+    ) -> Result<(), ContractError> {
+        whitelist::add(&env, &caller, &address, &scope)
+    }
+
+    /// Remove an address from a whitelist scope. Admin or grant owner only.
+    pub fn whitelist_remove(
+        env: Env,
+        caller: Address,
+        address: Address,
+        scope: WhitelistScope,
+    ) -> Result<(), ContractError> {
+        whitelist::remove(&env, &caller, &address, &scope)
+    }
+
+    /// Check if an address is on the whitelist for a scope.
+    /// If mode is Open, always returns true.
+    pub fn whitelist_is_allowed(
+        env: Env,
+        address: Address,
+        scope: WhitelistScope,
+    ) -> bool {
+        whitelist::is_allowed(&env, &address, &scope)
+    }
+
+    /// Set the operating mode for a scope (Open or Restricted). Admin only.
+    pub fn whitelist_set_mode(
+        env: Env,
+        admin: Address,
+        scope: WhitelistScope,
+        mode: WhitelistMode,
+    ) -> Result<(), ContractError> {
+        whitelist::set_mode(&env, &admin, &scope, mode)
+    }
+
+    /// Return the current mode for a scope.
+    pub fn whitelist_get_mode(env: Env, scope: WhitelistScope) -> WhitelistMode {
+        whitelist::get_mode(&env, &scope)
+    }
+
+    /// Return all entries in a whitelist scope.
+    pub fn whitelist_get_entries(env: Env, scope: WhitelistScope) -> Vec<WhitelistEntry> {
+        whitelist::get_entries(&env, &scope)
+    }
 }
 
 /// Issue #574: if a grant requires a performance bond, block milestone work until
@@ -3101,6 +3297,13 @@ pub(crate) fn internal_grant_create(
     if num_milestones == 0 || num_milestones > protocol_cfg.max_milestones_per_grant {
         return Err(ContractError::InvalidInput);
     }
+
+        // Issue #512: check whitelist for reviewers
+        for r in reviewers.iter() {
+            if !whitelist::is_allowed(env, &r, &WhitelistScope::GlobalReviewer) {
+                return Err(ContractError::AddressNotWhitelisted);
+            }
+        }
 
     if reviewers.len() > protocol_cfg.max_reviewers {
         return Err(ContractError::ReviewerLimitExceeded);

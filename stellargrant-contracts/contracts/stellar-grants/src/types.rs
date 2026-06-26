@@ -1619,3 +1619,110 @@ pub struct BondClaim {
     pub payout_amount: i128,
     pub claimed_at: u64,
 }
+
+// ── Issue #528: Math helpers module (no types needed, pure functions) ───────
+
+// ── Issue #564: Collateral Escrow Module ────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum CollateralStatus {
+    Required = 0,
+    Deposited = 1,
+    Released = 2,
+    Forfeited = 3,
+    PartiallyForfeited = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollateralRequirement {
+    pub grant_id: u64,
+    pub token: Address,
+    pub amount: i128,
+    pub forfeit_on_abandon_bps: u32,
+    pub forfeit_on_dispute_loss_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollateralDeposit {
+    pub grant_id: u64,
+    pub contributor: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub status: CollateralStatus,
+    pub deposited_at: u64,
+    pub forfeited_amount: i128,
+}
+
+// ── Issue #598: Funder Report Module ────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunderGrantSummary {
+    pub grant_id: u64,
+    pub grant_title: soroban_sdk::String,
+    pub token: Address,
+    pub funded_amount: i128,
+    pub paid_out_amount: i128,
+    pub refunded_amount: i128,
+    pub in_escrow: i128,
+    pub yield_earned: Option<i128>,
+    pub funded_at: u64,
+    pub grant_status: GrantStatus,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunderTokenSummary {
+    pub token: Address,
+    pub total_committed: i128,
+    pub total_paid_out: i128,
+    pub total_refunded: i128,
+    pub total_in_escrow: i128,
+    pub total_yield_earned: i128,
+    pub net_deployed: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunderReport {
+    pub funder: Address,
+    pub report_at: u64,
+    pub total_grants_funded: u32,
+    pub active_grants: u32,
+    pub completed_grants: u32,
+    pub token_summaries: soroban_sdk::Vec<FunderTokenSummary>,
+    pub grant_summaries: soroban_sdk::Vec<FunderGrantSummary>,
+    pub matching_contributions: i128,
+    pub insurance_premiums_paid: i128,
+}
+
+// ── Issue #512: Whitelist Module ─────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum WhitelistMode {
+    Open = 0,
+    Restricted = 1,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WhitelistScope {
+    GlobalReviewer,
+    GlobalContributor,
+    GrantReviewer(u64),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WhitelistEntry {
+    pub address: Address,
+    pub added_by: Address,
+    pub added_at: u64,
+    pub scope: WhitelistScope,
+}

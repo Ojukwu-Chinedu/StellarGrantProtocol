@@ -148,4 +148,11 @@ pub enum ContractError {
     BondNotPosted = 119,
     BondNotActive = 120,
     BondExpired = 121,
+    // Collateral (#564)
+    CollateralAlreadyDeposited = 122,
+    CollateralNotDeposited = 123,
+    // Whitelist (#512)
+    AddressNotWhitelisted = 124,
+    // Math (#528) — no specific errors, reuses ZeroAmount / InvalidInput
+    // Funder report (#598) — no specific errors, read-only
 }

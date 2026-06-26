@@ -90,6 +90,9 @@ pub fn deposit(
         Storage::set_escrow_funders_list(env, grant_id, &funders);
     }
 
+    // Issue #598: track grant in funder's index for report queries.
+    Storage::push_funder_grant_index(env, funder, grant_id);
+
     // Mirror onto Grant struct for backward-compatible queries.
     let mut grant = Storage::get_grant(env, grant_id).ok_or(ContractError::GrantNotFound)?;
     grant.escrow_balance = account.balance;

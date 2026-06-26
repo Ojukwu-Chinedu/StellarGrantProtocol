@@ -1268,6 +1268,54 @@ pub struct NftTransferred {
     pub timestamp: u64,
 }
 
+// ── Issue #564: Collateral events ───────────────────────────────────────────
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollateralDeposited {
+    pub grant_id: u64,
+    pub contributor: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollateralReleased {
+    pub grant_id: u64,
+    pub contributor: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollateralForfeited {
+    pub grant_id: u64,
+    pub contributor: Address,
+    pub amount: i128,
+    pub reason: String,
+    pub timestamp: u64,
+}
+
+// ── Issue #512: Whitelist events ────────────────────────────────────────────
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WhitelistAddressAdded {
+    pub address: Address,
+    pub scope: crate::types::WhitelistScope,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WhitelistAddressRemoved {
+    pub address: Address,
+    pub scope: crate::types::WhitelistScope,
+    pub timestamp: u64,
+}
+
 impl Events {
     pub fn emit_public_review_submitted(
         env: &Env,
@@ -1323,6 +1371,83 @@ impl Events {
             token_id,
             from,
             to,
+            timestamp: env.ledger().timestamp(),
+        };
+        event.publish(env);
+    }
+
+    // ── Issue #564: Collateral event emitters ──────────────────────────────
+
+    pub fn emit_collateral_deposited(
+        env: &Env,
+        grant_id: u64,
+        contributor: Address,
+        amount: i128,
+    ) {
+        let event = CollateralDeposited {
+            grant_id,
+            contributor,
+            amount,
+            timestamp: env.ledger().timestamp(),
+        };
+        event.publish(env);
+    }
+
+    pub fn emit_collateral_released(
+        env: &Env,
+        grant_id: u64,
+        contributor: Address,
+        amount: i128,
+    ) {
+        let event = CollateralReleased {
+            grant_id,
+            contributor,
+            amount,
+            timestamp: env.ledger().timestamp(),
+        };
+        event.publish(env);
+    }
+
+    pub fn emit_collateral_forfeited(
+        env: &Env,
+        grant_id: u64,
+        contributor: Address,
+        amount: i128,
+        reason: String,
+    ) {
+        let event = CollateralForfeited {
+            grant_id,
+            contributor,
+            amount,
+            reason,
+            timestamp: env.ledger().timestamp(),
+        };
+        event.publish(env);
+    }
+
+    // ── Issue #512: Whitelist event emitters ───────────────────────────────
+
+    pub fn emit_whitelist_address_added(
+        env: &Env,
+        address: Address,
+        scope: crate::types::WhitelistScope,
+    ) {
+        let event = WhitelistAddressAdded {
+            address,
+            scope,
+            timestamp: env.ledger().timestamp(),
+        };
+        event.publish(env);
+    }
+
+    pub fn emit_whitelist_address_removed(
+        env: &Env,
+        address: Address,
+        scope: crate::types::WhitelistScope,
+    ) {
+        let event = WhitelistAddressRemoved {
+            address,
+            scope,
             timestamp: env.ledger().timestamp(),
         };
         event.publish(env);

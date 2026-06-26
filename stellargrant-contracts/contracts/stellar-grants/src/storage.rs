@@ -10,8 +10,10 @@ use crate::types::{
     SyndicateMember, TokenMetric, TransferProposal, VoiceCredits, VotingMechanism,
 };
 use crate::types::{
-    Arbiter, ArbiterVote, ArbitrationCase, BondClaim, ExtensionRequest, PerformanceBond,
+    Arbiter, ArbiterVote, ArbitrationCase, BondClaim, CollateralDeposit, CollateralRequirement,
+    ExtensionRequest, PerformanceBond,
     ReferralCode, ReferralRecord,
+    WhitelistEntry, WhitelistMode, WhitelistScope,
 };
 use soroban_sdk::{contracttype, Address, Bytes, Env, Symbol, Vec};
 
@@ -178,6 +180,17 @@ pub enum DataKey {
     BondGrant(u32),
     BondClaim(u32),
     BondCounter,
+    // Issue #528: math helpers — no storage keys needed (pure functions)
+    // Issue #564: collateral escrow
+    CollateralRequirement(u64),
+    CollateralDeposit(u64, Address),
+    // Issue #512: whitelist
+    WhitelistEntries(WhitelistScope),
+    WhitelistMode(WhitelistScope),
+    // Issue #598: funder report — leverages existing escrow/insurance keys
+    FunderGrantIndex(Address),
+    MatchingContribution(Address),
+    GrantCounterValue,
 }
 
 const PERSISTENT_TTL_THRESHOLD: u32 = 100_000;
@@ -1836,5 +1849,115 @@ impl Storage {
         let key = DataKey::BondClaim(claim.bond_id);
         env.storage().persistent().set(&key, claim);
         Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #564: Collateral Escrow ───────────────────────────────────────
+
+    pub fn get_collateral_requirement(env: &Env, grant_id: u64) -> Option<CollateralRequirement> {
+        let key = DataKey::CollateralRequirement(grant_id);
+        let v = env.storage().persistent().get(&key);
+        if v.is_some() {
+            Self::bump_persistent_ttl(env, &key);
+        }
+        v
+    }
+
+    pub fn set_collateral_requirement(env: &Env, grant_id: u64, req: &CollateralRequirement) {
+        let key = DataKey::CollateralRequirement(grant_id);
+        env.storage().persistent().set(&key, req);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn get_collateral_deposit(
+        env: &Env,
+        grant_id: u64,
+        contributor: &Address,
+    ) -> Option<CollateralDeposit> {
+        let key = DataKey::CollateralDeposit(grant_id, contributor.clone());
+        let v = env.storage().persistent().get(&key);
+        if v.is_some() {
+            Self::bump_persistent_ttl(env, &key);
+        }
+        v
+    }
+
+    pub fn set_collateral_deposit(
+        env: &Env,
+        grant_id: u64,
+        contributor: &Address,
+        deposit: &CollateralDeposit,
+    ) {
+        let key = DataKey::CollateralDeposit(grant_id, contributor.clone());
+        env.storage().persistent().set(&key, deposit);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #512: Whitelist ───────────────────────────────────────────────
+
+    pub fn get_whitelist_entries(env: &Env, scope: &WhitelistScope) -> Vec<WhitelistEntry> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::WhitelistEntries(scope.clone()))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn set_whitelist_entries(env: &Env, scope: &WhitelistScope, entries: &Vec<WhitelistEntry>) {
+        let key = DataKey::WhitelistEntries(scope.clone());
+        env.storage().persistent().set(&key, entries);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    pub fn push_whitelist_entry(env: &Env, scope: &WhitelistScope, entry: &WhitelistEntry) {
+        let mut entries = Self::get_whitelist_entries(env, scope);
+        entries.push_back(entry.clone());
+        Self::set_whitelist_entries(env, scope, &entries);
+    }
+
+    pub fn get_whitelist_mode(env: &Env, scope: &WhitelistScope) -> Option<WhitelistMode> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::WhitelistMode(scope.clone()))
+    }
+
+    pub fn set_whitelist_mode(env: &Env, scope: &WhitelistScope, mode: WhitelistMode) {
+        let key = DataKey::WhitelistMode(scope.clone());
+        env.storage().persistent().set(&key, &mode);
+        Self::bump_persistent_ttl(env, &key);
+    }
+
+    // ── Issue #598: Funder Report ───────────────────────────────────────────
+
+    pub fn get_funder_grant_index(env: &Env, funder: &Address) -> Vec<u64> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::FunderGrantIndex(funder.clone()))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn push_funder_grant_index(env: &Env, funder: &Address, grant_id: u64) {
+        let key = DataKey::FunderGrantIndex(funder.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        if !ids.contains(grant_id) {
+            ids.push_back(grant_id);
+            env.storage().persistent().set(&key, &ids);
+            Self::bump_persistent_ttl(env, &key);
+        }
+    }
+
+    pub fn get_matching_contribution(env: &Env, funder: &Address) -> Option<i128> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MatchingContribution(funder.clone()))
+    }
+
+    pub fn get_grant_counter(env: &Env) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::GrantCounter)
+            .unwrap_or(0)
     }
 }
