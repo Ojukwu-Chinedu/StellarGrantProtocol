@@ -1,7 +1,9 @@
-use soroban_sdk::{Env, Symbol, Vec};
-use crate::types::{AnalyticsSnapshot, CategoryStats, RollingWindow};
 use crate::storage::Storage;
-use crate::constants;
+use crate::types::{AnalyticsSnapshot, CategoryStats, RollingWindow};
+use soroban_sdk::{Env, Symbol, Vec};
+
+const MAX_WINDOW_SIZE: u32 = 50;
+const STALENESS_THRESHOLD: u32 = 1000; // ledgers
 
 /// Record a data point in a rolling window (max 50 points, evicts oldest).
 pub fn record(env: &Env, metric: Symbol, value: i128) {
@@ -93,10 +95,9 @@ pub fn category_stats(env: &Env, category_id: u32) -> CategoryStats {
 
 /// Build and cache the full analytics snapshot.
 pub fn build_snapshot(env: &Env) -> AnalyticsSnapshot {
-    let milestone_avg = rolling_average(env, Symbol::new(env, "milestone_completion_time"))
-        .unwrap_or(0);
-    let reviewer_avg = rolling_average(env, Symbol::new(env, "reviewer_turnaround"))
-        .unwrap_or(0);
+    let milestone_avg =
+        rolling_average(env, Symbol::new(env, "milestone_completion_time")).unwrap_or(0);
+    let reviewer_avg = rolling_average(env, Symbol::new(env, "reviewer_turnaround")).unwrap_or(0);
     let success_window = get_window(env, Symbol::new(env, "grant_success"));
 
     let overall_success_rate_bps = if let Some(window) = success_window {
@@ -127,7 +128,10 @@ pub fn build_snapshot(env: &Env) -> AnalyticsSnapshot {
     let tvl_7day_growth_bps = if let Some(window) = tvl_window {
         if window.window_size >= 7 {
             let current_tvl = window.values.get(window.window_size - 1).unwrap();
-            let tvl_7days_ago = window.values.get(window.window_size.saturating_sub(7)).unwrap();
+            let tvl_7days_ago = window
+                .values
+                .get(window.window_size.saturating_sub(7))
+                .unwrap();
             if tvl_7days_ago > 0 {
                 (((current_tvl - tvl_7days_ago) * constants::BASIS_POINTS_SCALE as i128) / tvl_7days_ago) as i32
             } else {
