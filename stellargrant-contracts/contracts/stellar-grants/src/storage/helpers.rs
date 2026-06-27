@@ -1950,4 +1950,28 @@ impl Storage {
             .persistent()
             .set(&DataKey::Grant(GrantKey::ForkChildren(grant_id)), children);
     }
+
+    // ── Multi-Grant Portfolio Management ──────────────────────────────────────
+
+    pub fn push_owner_grant_id(env: &Env, owner: &Address, grant_id: u64) {
+        let key = DataKey::Grant(GrantKey::OwnerIndex(owner.clone()));
+        let mut ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        if !ids.contains(grant_id) {
+            ids.push_back(grant_id);
+            env.storage().persistent().set(&key, &ids);
+            Self::bump(env, &key);
+        }
+    }
+
+    pub fn get_owner_grant_ids(env: &Env, owner: &Address) -> Vec<u64> {
+        let key = DataKey::Grant(GrantKey::OwnerIndex(owner.clone()));
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env))
+    }
 }

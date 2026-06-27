@@ -46,7 +46,11 @@ mod oracle;
 mod pagination;
 mod params;
 mod performance_bond;
+mod provenance;
 mod quadratic;
+mod reviewer_reward;
+mod multi_grant;
+mod matching;
 mod rate_limit;
 mod referral;
 mod reentrancy;
@@ -70,22 +74,22 @@ pub use errors::ContractError;
 pub use events::Events;
 pub use storage::Storage;
 pub use types::{
-    AcceptanceCriteria, AnalyticsSnapshot, AuditAction, AuditEntry, BreakerState, CategoryStats,
+    AcceptanceCriteria, AnalyticsSnapshot, AuditAction, AuditEntry, BatchResult, BreakerState, CategoryStats,
     ChecklistSubmission, ComplianceAttestation, ComplianceLevel, ComplianceStatus, ContractVersion,
-    ContributorPortfolio, CrowdfundCampaign, CrowdfundPledge, CrowdfundStatus,
+    ContributorPortfolio, ContributionType, CrowdfundCampaign, CrowdfundPledge, CrowdfundStatus,
     CriterionStatus, DecayConfig, DecayType, DexConfig, Dispute, DisputeStatus, EscrowAccount, EscrowLifecycleState,
     EscrowMode, EscrowState, EvidenceField, EvidenceFieldType, EvidenceSchema, FeeRecord,
-    ForkRecord, FunderLedger, Grant, GrantArchetype, GrantCategory, GrantFund, GrantStatus, GrantSummary, GrantTag,
+    ForkRecord, FunderLedger, Grant, GrantArchetype, GrantCategory, GrantFund, GrantPortfolio, GrantStatus, GrantSummary, GrantTag,
     GrantVersion, Amendment, AmendmentStatus,
     GrantTemplate, HookCallResult, HookEvent, HookRegistration, InsuranceClaim, InsurancePolicy,
     Invoice, InvoiceStatus, IpRights, LicenseRecord, LicenseType, LineItem, MerkleCommitment,
     MerkleProof, MigrationRecord, Milestone, MilestoneDag, MilestoneDependency, MilestoneNft,
-    MilestoneState, MilestoneSubmission, MultisigProposal, MultisigSigner,
+    MilestoneState, MilestoneSubmission, MatchingAllocation, MatchingContribution, MatchingRound, MultisigProposal, MultisigSigner,
     NftMetadata, NotificationEvent, OracleConfig, ParamRecord, ParamType, ParamValue, PauseRecord, PaymentSplit, PaymentStream,
-    PriceQuote, ProtocolConfig, ProtocolMetrics, ProtocolModule, PublicReview, PublicReviewSignal,
+    PortfolioFilter, PortfolioStats, PriceQuote, ProvenanceRecord, ProtocolConfig, ProtocolMetrics, ProtocolModule, PublicReview, PublicReviewSignal,
     QuadraticVoteRecord, RateLimitAction, RegistryEntry, RegistryEntryType, RelayableAction,
     RelayAllowance, RelayConfig, RelayRecord, RenewalProposal, RenewalStatus, ReputationTier,
-    ReviewerAvailability, ReviewerProfile, ReviewerRequest, ReviewerRequestStatus, Role,
+    ReviewerAvailability, ReviewerProfile, ReviewerRequest, ReviewerRequestStatus, ReviewParticipation, ReviewerRewardRecord, ReviewerRewardPool, Role,
     RoleAssignment, RollingWindow, ScoreResult, ScoringDimension, ScoringRubric, ScoringWeight,
     SignatureStatus, SplitRecipient, StructuredEvidence, Subscription, SubscriptionScope, SwapResult, SwapRoute, SyndicateGrant,
     SyndicateMember, SyndicateStatus, TokenMetric, TransferProposal, TransferableRole, VoiceCredits, VotingMechanism,
@@ -527,6 +531,19 @@ impl StellarGrantsContract {
 
         Storage::set_milestone(&env, grant_id, milestone_idx, &milestone);
 
+        provenance::record(
+            &env,
+            ContributionType::MilestoneReviewed,
+            &reviewer,
+            grant_id,
+            Some(milestone_idx),
+            None,
+            Some(grant.token.clone()),
+            soroban_sdk::Vec::new(&env),
+        );
+
+        reviewer_reward::record_participation(&env, &reviewer, grant_id, false);
+
         if result.quorum_reached {
             if result.approved {
                 Self::update_contributor_reputation(
@@ -767,6 +784,17 @@ impl StellarGrantsContract {
                 Some(amount),
             );
 
+            provenance::record(
+                &env,
+                ContributionType::GrantFunded,
+                &funder,
+                grant_id,
+                None,
+                Some(amount),
+                Some(grant.token.clone()),
+                soroban_sdk::Vec::new(&env),
+            );
+
             metrics::update_token_locked(&env, &grant.token, amount);
 
             Ok(())
@@ -976,6 +1004,132 @@ impl StellarGrantsContract {
         Storage::set_reviewer_stake(&env, grant_id, &reviewer, 0);
 
         Ok(())
+    }
+
+    /// Reviewer claims all pending rewards for a specific token.
+    pub fn claim_reviewer_rewards(
+        env: Env,
+        reviewer: Address,
+        token: Address,
+    ) -> Result<i128, ContractError> {
+        reviewer.require_auth();
+        reviewer_reward::claim_rewards(&env, &reviewer, &token)
+    }
+
+    /// Get pending reviewer rewards for a specific token.
+    pub fn get_reviewer_rewards(env: Env, reviewer: Address, token: Address) -> Option<ReviewerRewardRecord> {
+        reviewer_reward::get_reward_record(&env, &reviewer, &token)
+    }
+
+    /// Get reviewer reward pool balance for a token.
+    pub fn get_reviewer_reward_pool_balance(env: Env, token: Address) -> i128 {
+        reviewer_reward::pool_balance(&env, &token)
+    }
+
+    // ── Multi-Grant Portfolio Management ───────────────────────────────────────
+
+    /// Get aggregated portfolio statistics for a grant owner.
+    pub fn get_portfolio_stats(env: Env, owner: Address) -> PortfolioStats {
+        multi_grant::get_portfolio_stats(&env, &owner)
+    }
+
+    /// Get all grant IDs matching a filter, paginated.
+    pub fn filter_grants(env: Env, filter: PortfolioFilter, offset: u32, limit: u32) -> Vec<u64> {
+        multi_grant::filter_grants(&env, filter, offset, limit)
+    }
+
+    /// Add a reviewer to multiple grants in one call.
+    pub fn batch_add_reviewer(
+        env: Env,
+        owner: Address,
+        grant_ids: Vec<u64>,
+        reviewer: Address,
+    ) -> Result<BatchResult, ContractError> {
+        owner.require_auth();
+        multi_grant::batch_add_reviewer(&env, &owner, grant_ids, &reviewer)
+    }
+
+    /// Remove a reviewer from multiple grants.
+    pub fn batch_remove_reviewer(
+        env: Env,
+        owner: Address,
+        grant_ids: Vec<u64>,
+        reviewer: Address,
+    ) -> Result<BatchResult, ContractError> {
+        owner.require_auth();
+        multi_grant::batch_remove_reviewer(&env, &owner, grant_ids, &reviewer)
+    }
+
+    /// Get total escrow balance across all grants for an owner and token.
+    pub fn get_total_escrow_balance(env: Env, owner: Address, token: Address) -> i128 {
+        multi_grant::total_escrow_balance(&env, &owner, &token)
+    }
+
+    /// Get the n most recently active grants for an owner.
+    pub fn get_recent_grants(env: Env, owner: Address, n: u32) -> Vec<u64> {
+        multi_grant::recent_grants(&env, &owner, n)
+    }
+
+    /// Get full grant portfolio view for an owner.
+    pub fn get_grant_portfolio(env: Env, owner: Address) -> GrantPortfolio {
+        multi_grant::get_portfolio(&env, &owner)
+    }
+
+    // ── Quadratic Funding Matching Rounds ──────────────────────────────────────
+
+    /// Create a new QF matching round with a pool of matching funds.
+    pub fn create_matching_round(
+        env: Env,
+        admin: Address,
+        token: Address,
+        matching_pool: i128,
+        duration_ledgers: u32,
+        eligible_grant_ids: Vec<u64>,
+    ) -> Result<u32, ContractError> {
+        admin.require_auth();
+        matching::create_round(&env, &admin, &token, matching_pool, duration_ledgers, eligible_grant_ids)
+    }
+
+    /// Contribute to a grant within an active matching round.
+    pub fn contribute_to_matching_round(
+        env: Env,
+        contributor: Address,
+        round_id: u32,
+        grant_id: u64,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        contributor.require_auth();
+        matching::contribute(&env, &contributor, round_id, grant_id, amount)
+    }
+
+    /// Compute QF allocations after a round ends.
+    pub fn compute_qf_allocations(env: Env, round_id: u32) -> Result<Vec<MatchingAllocation>, ContractError> {
+        matching::compute_allocations(&env, round_id)
+    }
+
+    /// Distribute match amounts to eligible grants' escrows.
+    pub fn distribute_matching_rewards(env: Env, round_id: u32) -> Result<(), ContractError> {
+        matching::distribute(&env, round_id)
+    }
+
+    /// Get a specific matching round.
+    pub fn get_matching_round(env: Env, round_id: u32) -> Result<MatchingRound, ContractError> {
+        matching::get_round(&env, round_id)
+    }
+
+    /// Get a contributor's contribution to a grant in a round.
+    pub fn get_matching_contribution(
+        env: Env,
+        round_id: u32,
+        contributor: Address,
+        grant_id: u64,
+    ) -> Option<MatchingContribution> {
+        matching::get_contribution(&env, round_id, &contributor, grant_id)
+    }
+
+    /// Get all allocations for a round after computation.
+    pub fn get_matching_allocations(env: Env, round_id: u32) -> Vec<MatchingAllocation> {
+        matching::get_allocations(&env, round_id)
     }
 
     // ── KYC Integration (#43) ───────────────────────────────────────
@@ -3394,6 +3548,17 @@ fn apply_milestone_submission(
         Some(grant.milestone_amount),
     );
 
+    provenance::record(
+        env,
+        ContributionType::MilestoneDelivered,
+        actor,
+        grant_id,
+        Some(milestone_idx),
+        Some(grant.milestone_amount),
+        Some(grant.token.clone()),
+        soroban_sdk::Vec::new(env),
+    );
+
     Ok(())
 }
 
@@ -3460,6 +3625,10 @@ pub(crate) fn internal_grant_create(
     };
 
     Storage::set_grant(env, grant_id, &grant);
+
+    // Maintain owner grant index for portfolio queries
+    Storage::push_owner_grant_id(env, owner, grant_id);
+
     versioning::create_initial_version(env, &grant);
     Storage::set_escrow_state(
         env,
@@ -3494,6 +3663,17 @@ pub(crate) fn internal_grant_create(
     if hooks::has_hooks(env, HookEvent::GrantCreated) {
         hooks::trigger(env, HookEvent::GrantCreated, Bytes::new(env));
     }
+
+    provenance::record(
+        env,
+        ContributionType::GrantCreated,
+        owner,
+        grant_id,
+        None,
+        Some(total_amount),
+        Some(token.clone()),
+        soroban_sdk::Vec::new(env),
+    );
 
     Ok(grant_id)
 }
